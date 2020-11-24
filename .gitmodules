@@ -4,3 +4,6 @@
 [submodule "lib/weth"]
 	path = lib/weth
 	url = https://github.com/dapphub/weth
+[submodule "lib/geb"]
+	path = lib/geb
+	url = https://github.com/reflexer-labs/geb.git
