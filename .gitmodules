@@ -1,9 +1,6 @@
 [submodule "lib/ds-test"]
 	path = lib/ds-test
 	url = https://github.com/dapphub/ds-test
-[submodule "lib/geb"]
-	path = lib/geb
-	url = https://github.com/reflexer-labs/geb.git
 [submodule "lib/ds-weth"]
 	path = lib/ds-weth
 	url = https://github.com/reflexer-labs/ds-weth.git
