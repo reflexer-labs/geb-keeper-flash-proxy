@@ -37,6 +37,13 @@ abstract contract SAFEEngineLike {
     function transferInternalCoins(address, address, uint) virtual public;
 }
 
+abstract contract CollateralJoinLike {
+    function decimals() virtual public returns (uint);
+    function collateral() virtual public returns (CollateralLike);
+    function join(address, uint) virtual public payable;
+    function exit(address, uint) virtual public;
+}
+
 abstract contract CoinJoinLike {
     function safeEngine() virtual public returns (SAFEEngineLike);
     function systemCoin() virtual public returns (CollateralLike);
@@ -108,8 +115,8 @@ contract GebKeeperFlashProxy {
 
         bytes memory callbackData = abi.encodeWithSelector(this.bid.selector, auctionId, amount);
 
-        uint amount0Out = address(coin) == IUniswapV2Pair(uniswapPair).token0() ? wad(amount) : 0;
-        uint amount1Out = address(coin) == IUniswapV2Pair(uniswapPair).token1() ? wad(amount) : 0;
+        uint amount0Out = address(coin) == uniswapPair.token0() ? wad(amount) : 0;
+        uint amount1Out = address(coin) == uniswapPair.token1() ? wad(amount) : 0;
 
         // flashloan amount
         uniswapPair.swap(amount0Out, amount1Out, address(this), callbackData);
@@ -129,24 +136,17 @@ contract GebKeeperFlashProxy {
 
         weth.transfer(address(uniswapPair), amountToRepay);
         
-        // send profit back
-        uint profit = weth.balanceOf(address(this));
-        weth.withdraw(profit);
-        caller.call{value: profit}("");
-        caller = address(0x0);
+        // // send profit back
+        // uint profit = weth.balanceOf(address(this));
+        // weth.withdraw(profit);
+        // caller.call{value: profit}("");
+        // caller = address(0x0);
     }    
 
     function bid(uint auctionId, uint amount) public {
         require(msg.sender == address(this), "only self");
-        address safeHandler = manager.safes(safe);
         
-        // Approves adapter to take the COIN amount
-        coin.approve(address(coinJoin), amount);
-        // Joins COIN into the safeEngine
-        coinJoin.join(safeHandler, amount);
+        
 
-        auctionHouse.buyCollateral(auctionId, amount);
-
-        ethJoin.exit(address(this), safeEngine.tokenCollateral(collateralType, address(this)));
     }
 }
