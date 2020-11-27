@@ -25,14 +25,17 @@ contract GebKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions
     UniswapV2Factory uniswapFactory;
     UniswapV2Router02 uniswapRouter;
     UniswapV2Pair raiETHPair;
-    uint256 initETHRAIPairLiquidity = 5 ether * 2;               // 1250 USD
-    uint256 initRAIETHPairLiquidity = 294.672324375E18 * 2;      // 1 RAI = 4.242 USD
+    uint256 initETHRAIPairLiquidity = 5 ether;               // 1250 USD
+    uint256 initRAIETHPairLiquidity = 294.672324375E18;      // 1 RAI = 4.242 USD
 
     bytes32 collateralAuctionType = bytes32("FIXED_DISCOUNT");
 
     function setUp() override public {
         super.setUp();
-        deployStableKeepAuth(collateralAuctionType);
+        deployIndexWithCreatorPermissions(collateralAuctionType);
+        safeEngine.modifyParameters("ETH", "debtCeiling", uint(0) - 1); // unlimited debt ceiling, enough liquidity is needed on Uniswap.
+        safeEngine.modifyParameters("globalDebtCeiling", uint(0) - 1); // unlimited globalDebtCeiling
+        emit log_named_uint("debtCeiling", uint(0) - 1);
 
         manager = new GebSafeManager(address(safeEngine));
 
@@ -46,9 +49,9 @@ contract GebKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions
         weth.deposit{value: initETHRAIPairLiquidity}();
         coin.approve(address(uniswapRouter), uint(-1));
         uint safe = this.openSAFE(address(manager), "ETH", address(this));
-        _lockETH(address(manager), address(ethJoin), safe, 2 ether);
-        _generateDebt(address(manager), address(taxCollector), address(coinJoin), safe, 100 ether, address(this));
-        uniswapRouter.addLiquidity(address(weth), address(coin), initETHRAIPairLiquidity, 100 ether, 1 ether, initRAIETHPairLiquidity, address(this), now);
+        _lockETH(address(manager), address(ethJoin), safe, 2000 ether);
+        _generateDebt(address(manager), address(taxCollector), address(coinJoin), safe, 100000 ether, address(this));
+        uniswapRouter.addLiquidity(address(weth), address(coin), initETHRAIPairLiquidity, 100000 ether, 1000 ether, initRAIETHPairLiquidity, address(this), now);
 
         // zeroing balances
         coin.transfer(address(0), coin.balanceOf(address(this)));
@@ -78,7 +81,7 @@ contract GebKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions
 
         _generateDebt(address(manager), address(taxCollector), address(coinJoin), safe, 20 ether, address(this)); // Maximun COIN generated
 
-        // force liquidation
+        // Liquidate
         orclETH.updateResult(uint(300 * 10 ** 18 - 1)); // Force liquidation
         oracleRelayer.updateCollateralPrice("ETH");
         batchId = liquidationEngine.liquidateSAFE("ETH", manager.safes(safe));
@@ -86,7 +89,24 @@ contract GebKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions
 
     function testSettleAuction() public {
         uint auction = _collateralAuctionETH();
+        uint previousBalance = address(this).balance;
+        keeperProxy.settleAuction(auction);
+        emit log_named_uint("Profit", address(this).balance - previousBalance);
+        assertTrue(previousBalance < address(this).balance); // profit!
+    }
+
+    function testFailSettleAuctionTwice() public {
+        uint auction = _collateralAuctionETH();
+        keeperProxy.settleAuction(auction);
         keeperProxy.settleAuction(auction);
     }
 
+    function testBigRedButton() public {
+        uint auction = _collateralAuctionETH();
+        uint previousBalance = address(this).balance;
+        keeperProxy.bigRedButton();
+        emit log_named_uint("Profit", address(this).balance - previousBalance);
+        assertEq(keeperProxy.lastKnownSettledAuction(), auction);
+        assertTrue(previousBalance < address(this).balance); // profit!
+    }
 }

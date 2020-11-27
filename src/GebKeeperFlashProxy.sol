@@ -5,6 +5,8 @@ import "./uni/interfaces/IUniswapV2Pair.sol";
 abstract contract AuctionHouseLike {
     function bids(uint) external virtual returns (uint, uint, uint, uint, uint48, address, address);
     function buyCollateral(uint256 id, uint256 wad) external virtual;
+    function getCollateralBought(uint256 id, uint256 wad) external virtual returns (uint256, uint256);
+    function auctionsStarted() external virtual returns (uint);
 }
 
 abstract contract ManagerLike {
@@ -72,15 +74,20 @@ contract GebKeeperFlashProxy {
     CoinJoinLike     ethJoin;
     IUniswapV2Pair   uniswapPair;
     address payable  caller;
-    uint    public   safe;
     bytes32 public   collateralType;
+    
+    uint256 public   lastKnownSettledAuction;
 
     function subtract(uint x, uint y) internal pure returns (uint z) {
         require((z = x - y) <= x, "sub-overflow");
     }
 
-    function wad(uint rad_) internal pure returns (uint) {
-        return rad_ / 10 ** 27;
+    function wad(uint rad) internal pure returns (uint) {
+        return rad / 10 ** 27;
+    }
+
+    function rad(uint wad) internal pure returns (uint) {
+        return wad * 10 ** 27;
     }
 
     constructor(
@@ -101,8 +108,22 @@ contract GebKeeperFlashProxy {
         ethJoin        = CoinJoinLike(ethJoinAddress);
         manager        = ManagerLike(safeManagerAddress);
         safeEngine     = manager.safeEngine();
-        safe           = manager.openSAFE(collateralType, address(this));
         collateralType = _collateralType;
+        safeEngine.approveSAFEModification(address(auctionHouse)); 
+    }
+
+    /// not to be taken seriously, will settle all auctions available bounded by the block gas limit
+    /// starts from the last settled auction known by the redButton function (other functions will not touch it)
+    /// dirty and expensive, suited to degens, failures to find an opportunity keep the counter updated
+    function bigRedButton() public {
+        for (uint i = lastKnownSettledAuction; i <= auctionHouse.auctionsStarted(); i++) {
+            (uint raisedAmount,,, uint amountToRaise, uint48 auctionDeadline,,) = auctionHouse.bids(i);
+            if (
+                auctionDeadline > now &&                   // auction valid
+                subtract(amountToRaise, raisedAmount) > 0  // balance to  be bought
+            ) settleAuction(i);
+            lastKnownSettledAuction = i;
+        }
     }
 
     function settleAuction(uint auctionId) public {
@@ -115,8 +136,8 @@ contract GebKeeperFlashProxy {
 
         bytes memory callbackData = abi.encodeWithSelector(this.bid.selector, auctionId, amount);
 
-        uint amount0Out = address(coin) == uniswapPair.token0() ? wad(amount) : 0;
-        uint amount1Out = address(coin) == uniswapPair.token1() ? wad(amount) : 0;
+        uint amount0Out = address(coin) == uniswapPair.token0() ? wad(amount) + 1 : 0;
+        uint amount1Out = address(coin) == uniswapPair.token1() ? wad(amount) + 1 : 0;
 
         // flashloan amount
         uniswapPair.swap(amount0Out, amount1Out, address(this), callbackData);
@@ -126,27 +147,36 @@ contract GebKeeperFlashProxy {
         require(_sender == address(this), "invalid sender");
         require(msg.sender == address(uniswapPair), "invalid uniswap pair");
 
-        // calling bid
-        address(this).call(_data);
+        // join COIN
+        uint amount = (_amount0 == 0 ? _amount1 : _amount0);
+        coin.approve(address(coinJoin), amount);
+        coinJoin.join(address(this), amount);
+
+        // bid
+        (bool success, ) = address(this).call(_data);
+        require(success, "failed bidding");
+
+        // exit WETH
+        ethJoin.exit(address(this), safeEngine.tokenCollateral(collateralType, address(this)));
 
         // repay loan
         uint pairBalanceTokenBorrow = coin.balanceOf(address(uniswapPair));
         uint pairBalanceTokenPay = weth.balanceOf(address(uniswapPair));
-        uint amountToRepay = ((1000 * pairBalanceTokenPay * (_amount0 == 0 ? _amount1 : _amount0)) / (997 * pairBalanceTokenBorrow)) + 1;
-
+        uint amountToRepay = ((1000 * pairBalanceTokenPay * amount) / (997 * pairBalanceTokenBorrow)) + 1;
         weth.transfer(address(uniswapPair), amountToRepay);
         
         // // send profit back
-        // uint profit = weth.balanceOf(address(this));
-        // weth.withdraw(profit);
-        // caller.call{value: profit}("");
-        // caller = address(0x0);
+        uint profit = weth.balanceOf(address(this));
+        weth.withdraw(profit);
+        caller.call{value: profit}("");
+        caller = address(0x0);
     }    
 
-    function bid(uint auctionId, uint amount) public {
+    function bid(uint auctionId, uint amount) public returns (uint ethAmount) {
         require(msg.sender == address(this), "only self");
-        
-        
-
+        (ethAmount, ) = auctionHouse.getCollateralBought(auctionId, amount);
+        auctionHouse.buyCollateral(auctionId, amount);
     }
+
+    receive() external payable {}
 }
