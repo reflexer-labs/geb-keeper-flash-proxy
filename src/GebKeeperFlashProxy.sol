@@ -60,20 +60,26 @@ abstract contract CollateralLike {
     function balanceOf(address) virtual public view returns (uint);
 }
 
-/// trustless proxy to settle auctions using funds from a flashSwap
-/// works only with Eth as collateral for now
-contract GebKeeperFlashProxy {
-    AuctionHouseLike auctionHouse;
-    SAFEEngineLike   safeEngine;
-    ManagerLike      manager;
-    CollateralLike   weth;
-    CollateralLike   coin;
-    CoinJoinLike     coinJoin;
-    CoinJoinLike     ethJoin;
-    IUniswapV2Pair   uniswapPair;
-    address payable  caller;
-    bytes32 public   collateralType;
+abstract contract LiquidationEngineLike {
+    function liquidateSAFE(bytes32 collateralType, address safe) virtual external returns (uint256 auctionId);
+}
 
+/// @title GEB Keeper Flash Proxy
+/// @notice Trustless proxy to allow for bidding in auctions and liquidating Safes using FlashSwaps
+contract GebKeeperFlashProxy {
+    AuctionHouseLike        auctionHouse;
+    SAFEEngineLike          safeEngine;
+    ManagerLike             manager;
+    CollateralLike          weth;
+    CollateralLike          coin;
+    CoinJoinLike            coinJoin;
+    CoinJoinLike            ethJoin;
+    IUniswapV2Pair          uniswapPair;
+    LiquidationEngineLike   liquidationEngine;
+    address payable         caller;
+    bytes32 public          collateralType;
+
+    // math aux functions
     function subtract(uint x, uint y) internal pure returns (uint z) {
         require((z = x - y) <= x, "sub-overflow");
     }
@@ -82,6 +88,16 @@ contract GebKeeperFlashProxy {
         return rad / 10 ** 27;
     }
 
+    /// @notice Constructor
+    /// @param auctionHouseAddress address of the auction house
+    /// @param wethAddress weth address
+    /// @param systemCoinAddress system coin address
+    /// @param uniswapPairAddress uniswap v2 pair address
+    /// @param safeManagerAddress safe manager address
+    /// @param coinJoinAddress coinJoin address
+    /// @param ethJoinAddress ethJoin address
+    /// @param liquidationEngineAddress liquidation engine address
+    /// @param _collateralType collateral type
     constructor(
         address auctionHouseAddress,
         address wethAddress,
@@ -90,20 +106,33 @@ contract GebKeeperFlashProxy {
         address safeManagerAddress,
         address coinJoinAddress,
         address ethJoinAddress,
+        address liquidationEngineAddress,
         bytes32 _collateralType
     ) public {
-        auctionHouse   = AuctionHouseLike(auctionHouseAddress);
-        weth           = CollateralLike(wethAddress);
-        coin           = CollateralLike(systemCoinAddress);
-        uniswapPair    = IUniswapV2Pair(uniswapPairAddress);
-        coinJoin       = CoinJoinLike(coinJoinAddress);
-        ethJoin        = CoinJoinLike(ethJoinAddress);
-        manager        = ManagerLike(safeManagerAddress);
-        safeEngine     = manager.safeEngine();
-        collateralType = _collateralType;
+        auctionHouse        = AuctionHouseLike(auctionHouseAddress);
+        weth                = CollateralLike(wethAddress);
+        coin                = CollateralLike(systemCoinAddress);
+        uniswapPair         = IUniswapV2Pair(uniswapPairAddress);
+        coinJoin            = CoinJoinLike(coinJoinAddress);
+        ethJoin             = CoinJoinLike(ethJoinAddress);
+        manager             = ManagerLike(safeManagerAddress);
+        safeEngine          = manager.safeEngine();
+        collateralType      = _collateralType;
         safeEngine.approveSAFEModification(address(auctionHouse)); 
+        liquidationEngine   = LiquidationEngineLike(liquidationEngineAddress);
     }
 
+    /// @notice liquidates an underwater safe right away
+    /// @param safe SafeId
+    /// @return auction auctionId;
+    function liquidateSAFE(uint safe) public returns (uint auction) {
+        auction = liquidationEngine.liquidateSAFE(collateralType, manager.safes(safe));
+        settleAuction(auction);
+    }
+
+    /// @notice Initiates a flashwap
+    /// @param amount amount to borrow
+    /// @param data callback date, it will call this contract with the data
     function _startSwap(uint amount, bytes memory data) internal {
         caller = msg.sender;
 
@@ -113,6 +142,8 @@ contract GebKeeperFlashProxy {
         uniswapPair.swap(amount0Out, amount1Out, address(this), data);
     }
 
+    /// @notice Settle auction
+    /// @param auctionId id of the auction to be settled
     function settleAuction(uint auctionId) public {
         (uint raisedAmount,,, uint amountToRaise, uint48 auctionDeadline,,) = auctionHouse.bids(auctionId);
         require(auctionDeadline > now, "auction-expired");
@@ -124,6 +155,8 @@ contract GebKeeperFlashProxy {
         _startSwap(wad(amount) + 1, callbackData);
     }
 
+    /// @notice Settle auctions
+    /// @param auctionIds ids of the auctions to be settled
     function settleAuction(uint[] memory auctionIds) public {
         (uint[] memory ids, uint[] memory bidAmounts, uint totalAmount) = getOpenAuctionsBidSizes(auctionIds);
         require(totalAmount > 0, "all auctions already settled");
@@ -133,6 +166,11 @@ contract GebKeeperFlashProxy {
         _startSwap(totalAmount, callbackData);
     }
 
+    /// @notice returns all open opprtunities from a provided auction list
+    /// @param auctionIds auction Ids
+    /// @return ids ids of active auctions;
+    /// @return bidAmounts Rad amounts to be bidded;
+    /// @return totalAmount Wad amount to be borrowed
     function getOpenAuctionsBidSizes(uint[] memory auctionIds) internal returns (uint[] memory, uint[] memory, uint) {
         uint48          auctionDeadline;
         uint            amountToRaise;
@@ -161,6 +199,11 @@ contract GebKeeperFlashProxy {
         return(ids, bidAmounts, totalAmount);
     }
 
+    /// @notice callback from Uniswap, funds in hands
+    /// @param _sender sender of the flashswap, should be address (this)
+    /// @param _amount0 amount of token0
+    /// @param _amount1 amount of token1
+    /// @param _data data sent back from uniswap
     function uniswapV2Call(address _sender, uint _amount0, uint _amount1, bytes calldata _data) external {
         require(_sender == address(this), "invalid sender");
         require(msg.sender == address(uniswapPair), "invalid uniswap pair");
@@ -190,11 +233,17 @@ contract GebKeeperFlashProxy {
         caller = address(0x0);
     }    
 
+    /// @notice bids in a single auction
+    /// @param auctionId auction Id
+    /// @param amount amount to bid
     function bid(uint auctionId, uint amount) external {
         require(msg.sender == address(this), "only self");
         auctionHouse.buyCollateral(auctionId, amount);
     }
 
+    /// @notice bids in multiple auctions
+    /// @param auctionIds auction Ids
+    /// @param amounts amounts to bid
     function multipleBid(uint[] calldata auctionIds, uint[] calldata amounts) external {
         require(msg.sender == address(this), "only self");
         for (uint i = 0; i < auctionIds.length; i++) {

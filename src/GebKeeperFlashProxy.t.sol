@@ -66,6 +66,7 @@ contract GebKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions
             address(manager),
             address(coinJoin),
             address(ethJoin),
+            address(liquidationEngine),
             "ETH"
         );
     }
@@ -90,6 +91,24 @@ contract GebKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions
         for (uint i = 0; i < safes.length; i++) {
             lastBidId = liquidationEngine.liquidateSAFE("ETH", manager.safes(safes[i]));
         }
+    }
+
+    function _generateUnsafeSafes(uint numberOfSafes) internal returns (uint lastSafeId) {
+        this.modifyParameters(address(liquidationEngine), "ETH", "liquidationQuantity", rad(1000 ether));
+        this.modifyParameters(address(liquidationEngine), "ETH", "liquidationPenalty", WAD);
+
+        for (uint i = 0; i < numberOfSafes; i++) {
+            lastSafeId = manager.openSAFE("ETH", address(this));
+            safes.push(lastSafeId);
+
+            _lockETH(address(manager), address(ethJoin), lastSafeId, 0.1 ether);
+
+            _generateDebt(address(manager), address(taxCollector), address(coinJoin), lastSafeId, 20 ether, address(this)); // Maximun COIN generated            
+        }
+
+        // Liquidate
+        orclETH.updateResult(uint(300 * 10 ** 18 - 1)); // Force liquidation
+        oracleRelayer.updateCollateralPrice("ETH");
     }
 
     function testSettleAuction() public {
@@ -130,5 +149,17 @@ contract GebKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions
         uint auction = _collateralAuctionETH(1);
         keeperProxy.settleAuction(auction);
         keeperProxy.settleAuction(auction);
+    }
+
+    function testLiquidateSafe() public {
+        uint safe = _generateUnsafeSafes(1);
+        uint previousBalance = address(this).balance;
+        
+        uint auction = keeperProxy.liquidateSAFE(safe);
+        emit log_named_uint("Profit", address(this).balance - previousBalance);
+        assertTrue(previousBalance < address(this).balance); // profit!
+
+        (,,, uint amountToRaise,,,) = ethFixedDiscountCollateralAuctionHouse.bids(auction);
+        assertEq(amountToRaise, 0);
     }
 }
