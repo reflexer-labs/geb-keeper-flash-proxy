@@ -70,43 +70,65 @@ contract GebKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions
         );
     }
 
-    function _collateralAuctionETH() internal returns (uint batchId) {
+    uint[] safes;
+    function _collateralAuctionETH(uint numberOfAuctions) internal returns (uint lastBidId) {
         this.modifyParameters(address(liquidationEngine), "ETH", "liquidationQuantity", rad(1000 ether));
         this.modifyParameters(address(liquidationEngine), "ETH", "liquidationPenalty", WAD);
 
-        // open safe
-        uint safe = manager.openSAFE("ETH", address(this));
+        for (uint i = 0; i < numberOfAuctions; i++) {
+            uint safe = manager.openSAFE("ETH", address(this));
+            safes.push(safe);
 
-        _lockETH(address(manager), address(ethJoin), safe, 0.1 ether);
+            _lockETH(address(manager), address(ethJoin), safe, 0.1 ether);
 
-        _generateDebt(address(manager), address(taxCollector), address(coinJoin), safe, 20 ether, address(this)); // Maximun COIN generated
+            _generateDebt(address(manager), address(taxCollector), address(coinJoin), safe, 20 ether, address(this)); // Maximun COIN generated            
+        }
 
         // Liquidate
         orclETH.updateResult(uint(300 * 10 ** 18 - 1)); // Force liquidation
         oracleRelayer.updateCollateralPrice("ETH");
-        batchId = liquidationEngine.liquidateSAFE("ETH", manager.safes(safe));
+        for (uint i = 0; i < safes.length; i++) {
+            lastBidId = liquidationEngine.liquidateSAFE("ETH", manager.safes(safes[i]));
+        }
     }
 
     function testSettleAuction() public {
-        uint auction = _collateralAuctionETH();
+        uint auction = _collateralAuctionETH(1);
         uint previousBalance = address(this).balance;
+        
         keeperProxy.settleAuction(auction);
         emit log_named_uint("Profit", address(this).balance - previousBalance);
         assertTrue(previousBalance < address(this).balance); // profit!
+
+        (,,, uint amountToRaise,,,) = ethFixedDiscountCollateralAuctionHouse.bids(auction);
+        assertEq(amountToRaise, 0);
+    }
+
+    uint[] auctions;
+    function testSettleAuctions() public {
+        uint lastAuction = _collateralAuctionETH(10);
+
+        keeperProxy.settleAuction(lastAuction);
+
+        auctions.push(lastAuction);      // auction already taken, will settle others
+        auctions.push(lastAuction - 3);
+        auctions.push(lastAuction - 4);
+        auctions.push(lastAuction - 8);
+        auctions.push(uint(0) - 1);      // unexistent auction, should still settle existing ones
+        uint previousBalance = address(this).balance;
+        keeperProxy.settleAuction(auctions);
+        emit log_named_uint("Profit", address(this).balance - previousBalance);
+        assertTrue(previousBalance < address(this).balance); // profit!
+
+        for (uint i = 0; i < auctions.length; i++) {
+            (,,, uint amountToRaise,,,) = ethFixedDiscountCollateralAuctionHouse.bids(auctions[i]);
+            assertEq(amountToRaise, 0);
+        }
     }
 
     function testFailSettleAuctionTwice() public {
-        uint auction = _collateralAuctionETH();
+        uint auction = _collateralAuctionETH(1);
         keeperProxy.settleAuction(auction);
         keeperProxy.settleAuction(auction);
-    }
-
-    function testBigRedButton() public {
-        uint auction = _collateralAuctionETH();
-        uint previousBalance = address(this).balance;
-        keeperProxy.bigRedButton();
-        emit log_named_uint("Profit", address(this).balance - previousBalance);
-        assertEq(keeperProxy.lastKnownSettledAuction(), auction);
-        assertTrue(previousBalance < address(this).balance); // profit!
     }
 }

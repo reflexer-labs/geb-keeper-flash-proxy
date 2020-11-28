@@ -3,10 +3,8 @@ pragma solidity ^0.6.7;
 import "./uni/interfaces/IUniswapV2Pair.sol";
 
 abstract contract AuctionHouseLike {
-    function bids(uint) external virtual returns (uint, uint, uint, uint, uint48, address, address);
+    function bids(uint) external view virtual returns (uint, uint, uint, uint, uint48, address, address);
     function buyCollateral(uint256 id, uint256 wad) external virtual;
-    function getCollateralBought(uint256 id, uint256 wad) external virtual returns (uint256, uint256);
-    function auctionsStarted() external virtual returns (uint);
 }
 
 abstract contract ManagerLike {
@@ -75,8 +73,6 @@ contract GebKeeperFlashProxy {
     IUniswapV2Pair   uniswapPair;
     address payable  caller;
     bytes32 public   collateralType;
-    
-    uint256 public   lastKnownSettledAuction;
 
     function subtract(uint x, uint y) internal pure returns (uint z) {
         require((z = x - y) <= x, "sub-overflow");
@@ -84,10 +80,6 @@ contract GebKeeperFlashProxy {
 
     function wad(uint rad) internal pure returns (uint) {
         return rad / 10 ** 27;
-    }
-
-    function rad(uint wad) internal pure returns (uint) {
-        return wad * 10 ** 27;
     }
 
     constructor(
@@ -112,18 +104,13 @@ contract GebKeeperFlashProxy {
         safeEngine.approveSAFEModification(address(auctionHouse)); 
     }
 
-    /// not to be taken seriously, will settle all auctions available bounded by the block gas limit
-    /// starts from the last settled auction known by the redButton function (other functions will not touch it)
-    /// dirty and expensive, suited to degens, failures to find an opportunity keep the counter updated
-    function bigRedButton() public {
-        for (uint i = lastKnownSettledAuction; i <= auctionHouse.auctionsStarted(); i++) {
-            (uint raisedAmount,,, uint amountToRaise, uint48 auctionDeadline,,) = auctionHouse.bids(i);
-            if (
-                auctionDeadline > now &&                   // auction valid
-                subtract(amountToRaise, raisedAmount) > 0  // balance to  be bought
-            ) settleAuction(i);
-            lastKnownSettledAuction = i;
-        }
+    function _startSwap(uint amount, bytes memory data) internal {
+        caller = msg.sender;
+
+        uint amount0Out = address(coin) == uniswapPair.token0() ? amount : 0;
+        uint amount1Out = address(coin) == uniswapPair.token1() ? amount : 0;
+
+        uniswapPair.swap(amount0Out, amount1Out, address(this), data);
     }
 
     function settleAuction(uint auctionId) public {
@@ -131,16 +118,47 @@ contract GebKeeperFlashProxy {
         require(auctionDeadline > now, "auction-expired");
         uint amount = subtract(amountToRaise, raisedAmount);
         require(amount > 0, "auction-already-settled");
-        
-        caller = msg.sender;
 
         bytes memory callbackData = abi.encodeWithSelector(this.bid.selector, auctionId, amount);
 
-        uint amount0Out = address(coin) == uniswapPair.token0() ? wad(amount) + 1 : 0;
-        uint amount1Out = address(coin) == uniswapPair.token1() ? wad(amount) + 1 : 0;
+        _startSwap(wad(amount) + 1, callbackData);
+    }
 
-        // flashloan amount
-        uniswapPair.swap(amount0Out, amount1Out, address(this), callbackData);
+    function settleAuction(uint[] memory auctionIds) public {
+        (uint[] memory ids, uint[] memory bidAmounts, uint totalAmount) = getOpenAuctionsBidSizes(auctionIds);
+        require(totalAmount > 0, "all auctions already settled");
+
+        bytes memory callbackData = abi.encodeWithSelector(this.multipleBid.selector, ids, bidAmounts);
+
+        _startSwap(totalAmount, callbackData);
+    }
+
+    function getOpenAuctionsBidSizes(uint[] memory auctionIds) internal returns (uint[] memory, uint[] memory, uint) {
+        uint48          auctionDeadline;
+        uint            amountToRaise;
+        uint            raisedAmount;
+        uint            amountAvailable;
+        uint            totalAmount;
+        uint            opportunityCount;
+        uint[] memory   ids = new uint[](auctionIds.length);
+        uint[] memory   bidAmounts = new uint[](auctionIds.length);
+
+        for (uint i = 0; i < auctionIds.length; i++) {
+            (raisedAmount,,, amountToRaise, auctionDeadline,,) = auctionHouse.bids(auctionIds[i]);
+            amountAvailable = subtract(amountToRaise, raisedAmount);
+            if ( amountAvailable > 0 && auctionDeadline > now) {
+                totalAmount += wad(amountAvailable) + 1;
+                ids[opportunityCount] = auctionIds[i];
+                bidAmounts[opportunityCount] = amountAvailable;
+                opportunityCount++;
+            }            
+        }
+
+        assembly { 
+            mstore(ids, opportunityCount) 
+            mstore(bidAmounts, opportunityCount)
+        }
+        return(ids, bidAmounts, totalAmount);
     }
 
     function uniswapV2Call(address _sender, uint _amount0, uint _amount1, bytes calldata _data) external {
@@ -172,10 +190,16 @@ contract GebKeeperFlashProxy {
         caller = address(0x0);
     }    
 
-    function bid(uint auctionId, uint amount) public returns (uint ethAmount) {
+    function bid(uint auctionId, uint amount) external {
         require(msg.sender == address(this), "only self");
-        (ethAmount, ) = auctionHouse.getCollateralBought(auctionId, amount);
         auctionHouse.buyCollateral(auctionId, amount);
+    }
+
+    function multipleBid(uint[] calldata auctionIds, uint[] calldata amounts) external {
+        require(msg.sender == address(this), "only self");
+        for (uint i = 0; i < auctionIds.length; i++) {
+            auctionHouse.buyCollateral(auctionIds[i], amounts[i]);
+        }
     }
 
     receive() external payable {}
