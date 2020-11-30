@@ -35,7 +35,6 @@ contract GebKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions
         deployIndexWithCreatorPermissions(collateralAuctionType);
         safeEngine.modifyParameters("ETH", "debtCeiling", uint(0) - 1); // unlimited debt ceiling, enough liquidity is needed on Uniswap.
         safeEngine.modifyParameters("globalDebtCeiling", uint(0) - 1); // unlimited globalDebtCeiling
-        emit log_named_uint("debtCeiling", uint(0) - 1);
 
         manager = new GebSafeManager(address(safeEngine));
 
@@ -151,15 +150,26 @@ contract GebKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions
         keeperProxy.settleAuction(auction);
     }
 
-    function testLiquidateSafe() public {
+    function testLiquidateUnprotectedSAFE() public {
         uint safe = _generateUnsafeSafes(1);
         uint previousBalance = address(this).balance;
         
-        uint auction = keeperProxy.liquidateSAFE(safe);
+        uint auction = keeperProxy.liquidateUnprotectedSAFE(safe);
         emit log_named_uint("Profit", address(this).balance - previousBalance);
         assertTrue(previousBalance < address(this).balance); // profit!
 
         (,,, uint amountToRaise,,,) = ethFixedDiscountCollateralAuctionHouse.bids(auction);
         assertEq(amountToRaise, 0);
+    }
+
+    function testFailLiquidateProtectedSAFE() public {
+
+        liquidationEngine.connectSAFESaviour(address(0xabc)); // connecting mock savior
+
+        uint safe = _generateUnsafeSafes(1);
+
+        manager.protectSAFE(safe, address(liquidationEngine), address(0xabc));
+
+        uint auction = keeperProxy.liquidateUnprotectedSAFE(safe);
     }
 }

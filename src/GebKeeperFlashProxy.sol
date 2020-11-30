@@ -61,6 +61,8 @@ abstract contract CollateralLike {
 }
 
 abstract contract LiquidationEngineLike {
+    mapping (bytes32 => mapping(address => address)) public chosenSAFESaviour;
+    mapping (address => uint256) public safeSaviours;
     function liquidateSAFE(bytes32 collateralType, address safe) virtual external returns (uint256 auctionId);
 }
 
@@ -118,15 +120,23 @@ contract GebKeeperFlashProxy {
         manager             = ManagerLike(safeManagerAddress);
         safeEngine          = manager.safeEngine();
         collateralType      = _collateralType;
-        safeEngine.approveSAFEModification(address(auctionHouse)); 
         liquidationEngine   = LiquidationEngineLike(liquidationEngineAddress);
+
+        safeEngine.approveSAFEModification(address(auctionHouse)); 
     }
 
-    /// @notice liquidates an underwater safe right away
+    /// @notice liquidates an underwater safe and settles the auction right away
+    /// @dev it will revert for protected safes (saviour), these need to be liquidated through liquidation engine
     /// @param safe SafeId
     /// @return auction auctionId;
-    function liquidateSAFE(uint safe) public returns (uint auction) {
-        auction = liquidationEngine.liquidateSAFE(collateralType, manager.safes(safe));
+    function liquidateUnprotectedSAFE(uint safe) public returns (uint auction) {
+        address safeHandler = manager.safes(safe);
+        if (liquidationEngine.safeSaviours(liquidationEngine.chosenSAFESaviour(collateralType, safeHandler)) == 1) {
+            require (liquidationEngine.chosenSAFESaviour(collateralType, safeHandler) == address(0),
+            "safe-is-protected.");
+        }
+
+        auction = liquidationEngine.liquidateSAFE(collateralType, safeHandler);
         settleAuction(auction);
     }
 
