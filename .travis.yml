@@ -1,0 +1,20 @@
+os:
+- linux
+language: nix
+nix: 2.3.6
+env:
+  global:
+    secure: C7LYoCgNpr4Zj2HCaV4Gyr2Nr6NbLvZCfaBAxild3WiEbRvlskFyr13D96MPMNlm76zYiFN8EqKnAguA3UxmdZgQjkATbYlMUJkoW2f5CUhZiwqzdhBQY24PninxqYLggIccpM/IIOdFYpqF34raYNTfVVUCV/A2gPHUsSKnxmuCUQWnqWmF6xKr21n9+1eOCXTTZJ0z0EUh2/68VvnSssY98m0Kzr3JGVG5Ma+dPWXpO9tbbh6mAV/nTVGXaPxHuLY5M447k5lmfDkfcyjyI0bNg1aaPgStksiTwWpOSY4thPuKGUOfzl+fKxgEUj1Yl14pcevHfwN3/63hDl66EUp3aFJvf14U9EAB7oaSd13yJoCdLxgjr1plgCR9HP+/ok5D1akfbZyAtR6l5bVn0wKj6YQpTh20VIZk6VXGsugmmzqbtZ4AxdbO3rZG0hzAlNfe+tQzR2FWyfkpWGY1yoShiojPDRj9sx5km9pXVLtl1CXdONFPh/nI3yW54s1B6F5d8I7tUHQkR7rThkH7DRaDQduniJzJxnXT0VlOnZHL3SIgiX3XwbMNgip+yemshX0ky9es6yWR0AW6WNUzUuUGbVB/lHEH75ft2MwMz4ZLo8bJW5wUn6dwLyxFXb8RHUQ6pb4DXP8sxFeRMzgv/Bo5x4fO3ZwCOxzOVJhU6ao=
+before_install:
+- openssl aes-256-cbc -K $encrypted_8ebb1ef83f64_key -iv $encrypted_8ebb1ef83f64_iv -in .travis/key.enc -out .travis/key -d
+- chmod 600 .travis/key
+- eval "$(ssh-agent -s)"
+- ssh-add .travis/key
+- nix-env -iA nixpkgs.cachix
+- echo "trusted-users = root travis" | sudo tee -a /etc/nix/nix.conf && sudo pkill
+  nix-daemon
+- cachix use maker
+- git clone --recursive https://github.com/dapphub/dapptools $HOME/.dapp/dapptools
+- nix-env -f https://github.com/makerdao/makerpkgs/tarball/master -iA dappPkgsVersions.hevm-0_41_0.dapp
+script:
+- dapp --use solc:0.6.7 test
