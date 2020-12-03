@@ -1,0 +1,286 @@
+{
+	"compiler": {
+		"version": "0.6.12+commit.27d51765"
+	},
+	"language": "Solidity",
+	"output": {
+		"abi": [
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "auctionHouseAddress",
+						"type": "address"
+					},
+					{
+						"internalType": "address",
+						"name": "wethAddress",
+						"type": "address"
+					},
+					{
+						"internalType": "address",
+						"name": "systemCoinAddress",
+						"type": "address"
+					},
+					{
+						"internalType": "address",
+						"name": "uniswapPairAddress",
+						"type": "address"
+					},
+					{
+						"internalType": "address",
+						"name": "coinJoinAddress",
+						"type": "address"
+					},
+					{
+						"internalType": "address",
+						"name": "ethJoinAddress",
+						"type": "address"
+					}
+				],
+				"stateMutability": "nonpayable",
+				"type": "constructor"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "uint256",
+						"name": "auctionId",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "amount",
+						"type": "uint256"
+					}
+				],
+				"name": "bid",
+				"outputs": [],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			},
+			{
+				"inputs": [],
+				"name": "collateralType",
+				"outputs": [
+					{
+						"internalType": "bytes32",
+						"name": "",
+						"type": "bytes32"
+					}
+				],
+				"stateMutability": "view",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "safe",
+						"type": "address"
+					}
+				],
+				"name": "liquidateAndSettleSAFE",
+				"outputs": [
+					{
+						"internalType": "uint256",
+						"name": "auction",
+						"type": "uint256"
+					}
+				],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "uint256[]",
+						"name": "auctionIds",
+						"type": "uint256[]"
+					},
+					{
+						"internalType": "uint256[]",
+						"name": "amounts",
+						"type": "uint256[]"
+					}
+				],
+				"name": "multipleBid",
+				"outputs": [],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "uint256",
+						"name": "auctionId",
+						"type": "uint256"
+					}
+				],
+				"name": "settleAuction",
+				"outputs": [],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "uint256[]",
+						"name": "auctionIds",
+						"type": "uint256[]"
+					}
+				],
+				"name": "settleAuction",
+				"outputs": [],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			},
+			{
+				"inputs": [
+					{
+						"internalType": "address",
+						"name": "_sender",
+						"type": "address"
+					},
+					{
+						"internalType": "uint256",
+						"name": "_amount0",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "_amount1",
+						"type": "uint256"
+					},
+					{
+						"internalType": "bytes",
+						"name": "_data",
+						"type": "bytes"
+					}
+				],
+				"name": "uniswapV2Call",
+				"outputs": [],
+				"stateMutability": "nonpayable",
+				"type": "function"
+			},
+			{
+				"stateMutability": "payable",
+				"type": "receive"
+			}
+		],
+		"devdoc": {
+			"kind": "dev",
+			"methods": {
+				"bid(uint256,uint256)": {
+					"params": {
+						"amount": "amount to bid",
+						"auctionId": "auction Id"
+					}
+				},
+				"constructor": {
+					"params": {
+						"auctionHouseAddress": "address of the auction house",
+						"coinJoinAddress": "coinJoin address",
+						"ethJoinAddress": "ethJoin address",
+						"systemCoinAddress": "system coin address",
+						"uniswapPairAddress": "uniswap v2 pair address",
+						"wethAddress": "weth address"
+					}
+				},
+				"liquidateAndSettleSAFE(address)": {
+					"details": "it will revert for protected safes (saviour), these need to be liquidated through liquidation engine",
+					"params": {
+						"safe": "SafeId"
+					},
+					"returns": {
+						"auction": "auctionId;"
+					}
+				},
+				"multipleBid(uint256[],uint256[])": {
+					"params": {
+						"amounts": "amounts to bid",
+						"auctionIds": "auction Ids"
+					}
+				},
+				"settleAuction(uint256)": {
+					"params": {
+						"auctionId": "id of the auction to be settled"
+					}
+				},
+				"settleAuction(uint256[])": {
+					"params": {
+						"auctionIds": "ids of the auctions to be settled"
+					}
+				},
+				"uniswapV2Call(address,uint256,uint256,bytes)": {
+					"params": {
+						"_amount0": "amount of token0",
+						"_amount1": "amount of token1",
+						"_data": "data sent back from uniswap",
+						"_sender": "sender of the flashswap, should be address (this)"
+					}
+				}
+			},
+			"title": "GEB Keeper Flash Proxy",
+			"version": 1
+		},
+		"userdoc": {
+			"kind": "user",
+			"methods": {
+				"bid(uint256,uint256)": {
+					"notice": "bids in a single auction"
+				},
+				"constructor": "Constructor",
+				"liquidateAndSettleSAFE(address)": {
+					"notice": "liquidates an underwater safe and settles the auction right away"
+				},
+				"multipleBid(uint256[],uint256[])": {
+					"notice": "bids in multiple auctions"
+				},
+				"settleAuction(uint256)": {
+					"notice": "Settle auction"
+				},
+				"settleAuction(uint256[])": {
+					"notice": "Settle auctions"
+				},
+				"uniswapV2Call(address,uint256,uint256,bytes)": {
+					"notice": "callback from Uniswap, funds in hands"
+				}
+			},
+			"notice": "Trustless proxy to allow for bidding in auctions and liquidating Safes using FlashSwaps",
+			"version": 1
+		}
+	},
+	"settings": {
+		"compilationTarget": {
+			"localhost/src/GebKeeperFlashProxy.sol": "GebKeeperFlashProxy"
+		},
+		"evmVersion": "istanbul",
+		"libraries": {},
+		"metadata": {
+			"bytecodeHash": "ipfs"
+		},
+		"optimizer": {
+			"enabled": false,
+			"runs": 200
+		},
+		"remappings": []
+	},
+	"sources": {
+		"localhost/src/GebKeeperFlashProxy.sol": {
+			"keccak256": "0x4ef878b9a7a41d2c8dde13bb30d9989b6025cb25ae194cc83261bd7dafd71fc7",
+			"urls": [
+				"bzz-raw://75e8a0e3b6f032e7bde28e7272aae8a2595479e5f8ebaeb557abd1d3f82ebae5",
+				"dweb:/ipfs/QmPt61jLKfTqzhLwP7W4agjehkY5fQonsUSpikVNwKSHCE"
+			]
+		},
+		"localhost/src/uni/interfaces/IUniswapV2Pair.sol": {
+			"keccak256": "0x37f12de116a6555593bfe08aebb091a5a740a4e824ebb3d795ed053c59325d24",
+			"urls": [
+				"bzz-raw://8796c7cc8016739a60d88576b02ccf659f2a5406d1367aac38b95b1d1d6a65ed",
+				"dweb:/ipfs/QmWaT76mXdvr8wwwJmkFFmsPC2uJ1qVi8DyGvN5bDy8LTG"
+			]
+		}
+	},
+	"version": 1
+}
