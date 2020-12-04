@@ -185,7 +185,7 @@ contract GebMultiCollateralKeeperFlashProxy {
 
         // repay loan
         uint pairBalanceTokenBorrow = coin.balanceOf(address(uniswapPair));
-        uint pairBalanceTokenPay = weth.balanceOf(address(uniswapPair));
+        uint pairBalanceTokenPay = collateralJoin.collateral().balanceOf(address(uniswapPair));
         uint amountToRepay = ((1000 * pairBalanceTokenPay * wadAmount ) / (997 * pairBalanceTokenBorrow)) + 1;
         collateralJoin.collateral().transfer(address(uniswapPair), amountToRepay); 
         

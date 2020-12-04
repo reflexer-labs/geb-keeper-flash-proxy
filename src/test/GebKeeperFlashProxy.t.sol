@@ -12,15 +12,15 @@ import {GebSafeManager} from "geb-safe-manager/GebSafeManager.sol";
 import {GetSafes} from "geb-safe-manager/GetSafes.sol";
 import {GebProxyIncentivesActions} from "geb-proxy-actions/GebProxyActions.sol";
 
-import "./uni/UniswapV2Factory.sol";
-import "./uni/UniswapV2Pair.sol";
-import "./uni/UniswapV2Router02.sol";
+import "../uni/UniswapV2Factory.sol";
+import "../uni/UniswapV2Pair.sol";
+import "../uni/UniswapV2Router02.sol";
 
-import "./GebMultiCollateralKeeperFlashProxy.sol";
+import "../GebKeeperFlashProxy.sol";
 
-contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions {
+contract GebKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions {
     GebSafeManager manager;
-    GebMultiCollateralKeeperFlashProxy keeperProxy;
+    GebKeeperFlashProxy keeperProxy;
     
     UniswapV2Factory uniswapFactory;
     UniswapV2Router02 uniswapRouter;
@@ -57,12 +57,13 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         raiETHPair.transfer(address(0), raiETHPair.balanceOf(address(this)));
 
         // keeper Proxy
-        keeperProxy = new GebMultiCollateralKeeperFlashProxy(
+        keeperProxy = new GebKeeperFlashProxy(
+            address(ethFixedDiscountCollateralAuctionHouse),
             address(weth),
             address(coin),
-            address(uniswapFactory),
+            address(raiETHPair),
             address(coinJoin),
-            address(liquidationEngine)
+            address(ethJoin)
         );
     }
 
@@ -106,33 +107,66 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         oracleRelayer.updateCollateralPrice("ETH");
     }
 
-    function testSettleETHAuction() public {
+    function testSettleAuction() public {
         uint auction = _collateralAuctionETH(1);
         uint previousBalance = address(this).balance;
         
-        keeperProxy.settleAuction(CollateralJoinLike(address(ethJoin)), auction);
+        keeperProxy.settleAuction(auction);
         emit log_named_uint("Profit", address(this).balance - previousBalance);
         assertTrue(previousBalance < address(this).balance); // profit!
 
         (,,, uint amountToRaise,,,) = ethFixedDiscountCollateralAuctionHouse.bids(auction);
         assertEq(amountToRaise, 0);
+    }
+
+    uint[] auctions;
+    function testSettleAuctions() public {
+        uint lastAuction = _collateralAuctionETH(10);
+
+        keeperProxy.settleAuction(lastAuction);
+
+        auctions.push(lastAuction);      // auction already taken, will settle others
+        auctions.push(lastAuction - 3);
+        auctions.push(lastAuction - 4);
+        auctions.push(lastAuction - 8);
+        auctions.push(uint(0) - 1);      // unexistent auction, should still settle existing ones
+        uint previousBalance = address(this).balance;
+        keeperProxy.settleAuction(auctions);
+        emit log_named_uint("Profit", address(this).balance - previousBalance);
+        assertTrue(previousBalance < address(this).balance); // profit!
+
+        for (uint i = 0; i < auctions.length; i++) {
+            (,,, uint amountToRaise,,,) = ethFixedDiscountCollateralAuctionHouse.bids(auctions[i]);
+            assertEq(amountToRaise, 0);
+        }
     }
 
     function testFailSettleAuctionTwice() public {
         uint auction = _collateralAuctionETH(1);
-        keeperProxy.settleAuction(CollateralJoinLike(address(ethJoin)), auction);
-        keeperProxy.settleAuction(CollateralJoinLike(address(ethJoin)), auction);
+        keeperProxy.settleAuction(auction);
+        keeperProxy.settleAuction(auction);
     }
 
-    function testLiquidateAndSettleETHSAFE() public {
+    function testLiquidateAndSettleSAFE() public {
         uint safe = _generateUnsafeSafes(1);
         uint previousBalance = address(this).balance;
         
-        uint auction = keeperProxy.liquidateAndSettleSAFE(CollateralJoinLike(address(ethJoin)), manager.safes(safe));
+        uint auction = keeperProxy.liquidateAndSettleSAFE(manager.safes(safe));
         emit log_named_uint("Profit", address(this).balance - previousBalance);
         assertTrue(previousBalance < address(this).balance); // profit!
 
         (,,, uint amountToRaise,,,) = ethFixedDiscountCollateralAuctionHouse.bids(auction);
         assertEq(amountToRaise, 0);
+    }
+
+    function testFailLiquidateProtectedSAFE() public {
+
+        liquidationEngine.connectSAFESaviour(address(0xabc)); // connecting mock savior
+
+        uint safe = _generateUnsafeSafes(1);
+
+        manager.protectSAFE(safe, address(liquidationEngine), address(0xabc));
+
+        uint auction = keeperProxy.liquidateAndSettleSAFE(manager.safes(safe));
     }
 }
