@@ -5,25 +5,8 @@ import "./uni/interfaces/IUniswapV2Pair.sol";
 abstract contract AuctionHouseLike {
     function bids(uint) external view virtual returns (uint, uint, uint, uint, uint48, address, address);
     function buyCollateral(uint256 id, uint256 wad) external virtual;
-}
-
-abstract contract ManagerLike {
-    function safeCan(address, uint, address) virtual public view returns (uint);
-    function collateralTypes(uint) virtual public view returns (bytes32);
-    function ownsSAFE(uint) virtual public view returns (address);
-    function safes(uint) virtual public view returns (address);
-    function safeEngine() virtual public view returns (SAFEEngineLike);
-    function openSAFE(bytes32, address) virtual public returns (uint);
-    function transferSAFEOwnership(uint, address) virtual public;
-    function allowSAFE(uint, address, uint) virtual public;
-    function allowHandler(address, uint) virtual public;
-    function modifySAFECollateralization(uint, int, int) virtual public;
-    function transferCollateral(uint, address, uint) virtual public;
-    function transferInternalCoins(uint, address, uint) virtual public;
-    function quitSystem(uint, address) virtual public;
-    function enterSystem(address, uint) virtual public;
-    function moveSAFE(uint, uint) virtual public;
-    function protectSAFE(uint, address, address) virtual public;
+    function liquidationEngine() view public virtual returns (LiquidationEngineLike);
+    function collateralType() view public virtual returns (bytes32);
 }
 
 abstract contract SAFEEngineLike {
@@ -64,14 +47,15 @@ abstract contract LiquidationEngineLike {
     mapping (bytes32 => mapping(address => address)) public chosenSAFESaviour;
     mapping (address => uint256) public safeSaviours;
     function liquidateSAFE(bytes32 collateralType, address safe) virtual external returns (uint256 auctionId);
+    function safeEngine() view public virtual returns (SAFEEngineLike);
 }
 
 /// @title GEB Keeper Flash Proxy
 /// @notice Trustless proxy to allow for bidding in auctions and liquidating Safes using FlashSwaps
+// @notice Single collateral version, only ETH
 contract GebKeeperFlashProxy {
     AuctionHouseLike        auctionHouse;
     SAFEEngineLike          safeEngine;
-    ManagerLike             manager;
     CollateralLike          weth;
     CollateralLike          coin;
     CoinJoinLike            coinJoin;
@@ -95,21 +79,15 @@ contract GebKeeperFlashProxy {
     /// @param wethAddress weth address
     /// @param systemCoinAddress system coin address
     /// @param uniswapPairAddress uniswap v2 pair address
-    /// @param safeManagerAddress safe manager address
     /// @param coinJoinAddress coinJoin address
     /// @param ethJoinAddress ethJoin address
-    /// @param liquidationEngineAddress liquidation engine address
-    /// @param _collateralType collateral type
     constructor(
         address auctionHouseAddress,
         address wethAddress,
         address systemCoinAddress,
         address uniswapPairAddress,
-        address safeManagerAddress,
         address coinJoinAddress,
-        address ethJoinAddress,
-        address liquidationEngineAddress,
-        bytes32 _collateralType
+        address ethJoinAddress
     ) public {
         auctionHouse        = AuctionHouseLike(auctionHouseAddress);
         weth                = CollateralLike(wethAddress);
@@ -117,10 +95,9 @@ contract GebKeeperFlashProxy {
         uniswapPair         = IUniswapV2Pair(uniswapPairAddress);
         coinJoin            = CoinJoinLike(coinJoinAddress);
         ethJoin             = CoinJoinLike(ethJoinAddress);
-        manager             = ManagerLike(safeManagerAddress);
-        safeEngine          = manager.safeEngine();
-        collateralType      = _collateralType;
-        liquidationEngine   = LiquidationEngineLike(liquidationEngineAddress);
+        collateralType      = auctionHouse.collateralType();
+        liquidationEngine   = auctionHouse.liquidationEngine();
+        safeEngine          = liquidationEngine.safeEngine();
 
         safeEngine.approveSAFEModification(address(auctionHouse)); 
     }
@@ -129,14 +106,13 @@ contract GebKeeperFlashProxy {
     /// @dev it will revert for protected safes (saviour), these need to be liquidated through liquidation engine
     /// @param safe SafeId
     /// @return auction auctionId;
-    function liquidateUnprotectedSAFE(uint safe) public returns (uint auction) {
-        address safeHandler = manager.safes(safe);
-        if (liquidationEngine.safeSaviours(liquidationEngine.chosenSAFESaviour(collateralType, safeHandler)) == 1) {
-            require (liquidationEngine.chosenSAFESaviour(collateralType, safeHandler) == address(0),
+    function liquidateAndSettleSAFE(address safe) public returns (uint auction) {
+        if (liquidationEngine.safeSaviours(liquidationEngine.chosenSAFESaviour(collateralType, safe)) == 1) {
+            require (liquidationEngine.chosenSAFESaviour(collateralType, safe) == address(0),
             "safe-is-protected.");
         }
 
-        auction = liquidationEngine.liquidateSAFE(collateralType, safeHandler);
+        auction = liquidationEngine.liquidateSAFE(collateralType, safe);
         settleAuction(auction);
     }
 
@@ -234,6 +210,7 @@ contract GebKeeperFlashProxy {
         uint pairBalanceTokenBorrow = coin.balanceOf(address(uniswapPair));
         uint pairBalanceTokenPay = weth.balanceOf(address(uniswapPair));
         uint amountToRepay = ((1000 * pairBalanceTokenPay * amount) / (997 * pairBalanceTokenBorrow)) + 1;
+        require(amountToRepay <= weth.balanceOf(address(this)), "profit not enough to repay the flashswap");
         weth.transfer(address(uniswapPair), amountToRepay);
         
         // // send profit back
@@ -261,5 +238,7 @@ contract GebKeeperFlashProxy {
         }
     }
 
-    receive() external payable {}
+    receive() external payable {
+        require(msg.sender == address(weth), "only weth withdrawals allowed");
+    }
 }

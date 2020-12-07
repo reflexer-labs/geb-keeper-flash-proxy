@@ -12,11 +12,11 @@ import {GebSafeManager} from "geb-safe-manager/GebSafeManager.sol";
 import {GetSafes} from "geb-safe-manager/GetSafes.sol";
 import {GebProxyIncentivesActions} from "geb-proxy-actions/GebProxyActions.sol";
 
-import "./uni/UniswapV2Factory.sol";
-import "./uni/UniswapV2Pair.sol";
-import "./uni/UniswapV2Router02.sol";
+import "../uni/UniswapV2Factory.sol";
+import "../uni/UniswapV2Pair.sol";
+import "../uni/UniswapV2Router02.sol";
 
-import "./GebKeeperFlashProxy.sol";
+import "../GebKeeperFlashProxy.sol";
 
 contract GebKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions {
     GebSafeManager manager;
@@ -62,11 +62,8 @@ contract GebKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions
             address(weth),
             address(coin),
             address(raiETHPair),
-            address(manager),
             address(coinJoin),
-            address(ethJoin),
-            address(liquidationEngine),
-            "ETH"
+            address(ethJoin)
         );
     }
 
@@ -150,11 +147,11 @@ contract GebKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions
         keeperProxy.settleAuction(auction);
     }
 
-    function testLiquidateUnprotectedSAFE() public {
+    function testLiquidateAndSettleSAFE() public {
         uint safe = _generateUnsafeSafes(1);
         uint previousBalance = address(this).balance;
         
-        uint auction = keeperProxy.liquidateUnprotectedSAFE(safe);
+        uint auction = keeperProxy.liquidateAndSettleSAFE(manager.safes(safe));
         emit log_named_uint("Profit", address(this).balance - previousBalance);
         assertTrue(previousBalance < address(this).balance); // profit!
 
@@ -170,6 +167,6 @@ contract GebKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions
 
         manager.protectSAFE(safe, address(liquidationEngine), address(0xabc));
 
-        uint auction = keeperProxy.liquidateUnprotectedSAFE(safe);
+        uint auction = keeperProxy.liquidateAndSettleSAFE(manager.safes(safe));
     }
 }
