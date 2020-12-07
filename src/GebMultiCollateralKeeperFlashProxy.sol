@@ -11,7 +11,7 @@ abstract contract AuctionHouseLike {
 }
 
 abstract contract SAFEEngineLike {
-    mapping (bytes32 => mapping (address => uint256))  public tokenCollateral;  // [wad]
+    function tokenCollateral(bytes32, address) virtual public view returns (uint);
     function canModifySAFE(address, address) virtual public view returns (uint);
     function collateralTypes(bytes32) virtual public view returns (uint, uint, uint, uint, uint);
     function coinBalance(address) virtual public view returns (uint);
@@ -47,8 +47,8 @@ abstract contract CollateralLike {
 }
 
 abstract contract LiquidationEngineLike {
-    mapping (bytes32 => mapping(address => address)) public chosenSAFESaviour;
-    mapping (address => uint256) public safeSaviours;
+    function chosenSAFESaviour(bytes32, address) virtual view public returns (address);
+    function safeSaviours(address) virtual view public returns (uint);
     function liquidateSAFE(bytes32 collateralType, address safe) virtual external returns (uint256 auctionId);
     function safeEngine() view public virtual returns (SAFEEngineLike);
     function collateralTypes(bytes32) public virtual returns(AuctionHouseLike,uint,uint);
@@ -65,7 +65,6 @@ contract GebMultiCollateralKeeperFlashProxy {
     IUniswapV2Pair          uniswapPair;
     IUniswapV2Factory       uniswapFactory;
     LiquidationEngineLike   liquidationEngine;
-    address payable         caller;
     bytes32 public          collateralType;
 
     // math aux functions
@@ -124,8 +123,8 @@ contract GebMultiCollateralKeeperFlashProxy {
         uint amount = subtract(amountToRaise, raisedAmount);
         require(amount > 0, "auction-already-settled");
 
-        bytes memory callbackData = abi.encodeWithSelector(
-            this.bid.selector, 
+        bytes memory callbackData = abi.encode(
+            msg.sender, 
             address(collateralJoin),
             address(auctionHouse),
             auctionId, 
@@ -142,7 +141,6 @@ contract GebMultiCollateralKeeperFlashProxy {
     /// @param amount amount to borrow
     /// @param data callback date, it will call this contract with the data
     function _startSwap(uint amount, bytes memory data) internal {
-        caller = msg.sender;
 
         uint amount0Out = address(coin) == uniswapPair.token0() ? amount : 0;
         uint amount1Out = address(coin) == uniswapPair.token1() ? amount : 0;
@@ -159,18 +157,10 @@ contract GebMultiCollateralKeeperFlashProxy {
         require(_sender == address(this), "invalid sender");
         require(msg.sender == address(uniswapPair), "invalid uniswap pair");
 
-        // internal call
-        (bool success, ) = address(this).call(_data);
-        require(success, "failed bidding");
-    }    
+        (address caller, CollateralJoinLike collateralJoin, AuctionHouseLike auctionHouse, uint auctionId, uint amount) = abi.decode(
+            _data, (address, CollateralJoinLike, AuctionHouseLike, uint, uint)
+        );
 
-    /// @notice bids in a single auction
-    /// @param collateralJoin join address for the collateral
-    /// @param auctionHouse auctionHouse address
-    /// @param auctionId auction Id
-    /// @param amount amount to bid
-    function bid(CollateralJoinLike collateralJoin, AuctionHouseLike auctionHouse, uint auctionId, uint amount) external {
-        require(msg.sender == address(this), "only self"); 
         uint wadAmount = wad(amount) + 1; 
 
         // join COIN
@@ -187,6 +177,7 @@ contract GebMultiCollateralKeeperFlashProxy {
         uint pairBalanceTokenBorrow = coin.balanceOf(address(uniswapPair));
         uint pairBalanceTokenPay = collateralJoin.collateral().balanceOf(address(uniswapPair));
         uint amountToRepay = ((1000 * pairBalanceTokenPay * wadAmount ) / (997 * pairBalanceTokenBorrow)) + 1;
+        require(amountToRepay <= collateralJoin.collateral().balanceOf(address(this)), "profit not enough to repay the flashswap");
         collateralJoin.collateral().transfer(address(uniswapPair), amountToRepay); 
         
         // send profit back
@@ -198,8 +189,8 @@ contract GebMultiCollateralKeeperFlashProxy {
             collateralJoin.collateral().transfer(caller, collateralJoin.collateral().balanceOf(address(this)));
         }
 
-        caller = address(0x0);
         uniswapPair = IUniswapV2Pair(address(0x0));
+
     }
 
     receive() external payable {
