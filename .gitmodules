@@ -7,9 +7,6 @@
 [submodule "lib/ds-token"]
 	path = lib/ds-token
 	url = https://github.com/reflexer-labs/ds-token.git
-[submodule "lib/geb-deploy"]
-	path = lib/geb-deploy
-	url = https://github.com/reflexer-labs/geb-deploy.git
 [submodule "lib/geb-safe-manager"]
 	path = lib/geb-safe-manager
 	url = https://github.com/reflexer-labs/geb-safe-manager.git
