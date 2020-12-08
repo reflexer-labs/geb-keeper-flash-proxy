@@ -26,7 +26,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
     DSProxy proxy;
     address gebProxyActions;
     GebProxyRegistry registry;
-    
+
     UniswapV2Factory uniswapFactory;
     UniswapV2Router02 uniswapRouter;
     UniswapV2Pair raiETHPair;
@@ -76,10 +76,9 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         col.mint(100000 ether);
         col.approve(address(uniswapRouter), uint(-1));
         uniswapRouter.addLiquidity(address(col), address(coin), initETHRAIPairLiquidity, 100000 ether, 1000 ether, initRAIETHPairLiquidity, address(this), now);
-        
 
         // zeroing balances
-        coin.transfer(address(0), coin.balanceOf(address(this)));
+        coin.transfer(address(1), coin.balanceOf(address(this)));
         raiETHPair.transfer(address(0), raiETHPair.balanceOf(address(this)));
         raiCOLPair.transfer(address(0), raiCOLPair.balanceOf(address(this)));
 
@@ -108,7 +107,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
 
             _lockETH(address(manager), address(ethJoin), safe, 0.1 ether);
 
-            _generateDebt(address(manager), address(taxCollector), address(coinJoin), safe, 20 ether, address(this)); // Maximun COIN generated            
+            _generateDebt(address(manager), address(taxCollector), address(coinJoin), safe, 20 ether, address(this)); // Maximun COIN generated
         }
 
         // Liquidate
@@ -129,7 +128,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
 
             _lockETH(address(manager), address(ethJoin), lastSafeId, 0.1 ether);
 
-            _generateDebt(address(manager), address(taxCollector), address(coinJoin), lastSafeId, 20 ether, address(this)); // Maximun COIN generated            
+            _generateDebt(address(manager), address(taxCollector), address(coinJoin), lastSafeId, 20 ether, address(this)); // Maximun COIN generated
         }
 
         // Liquidate
@@ -153,7 +152,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
     function testSettleETHAuction() public {
         uint auction = _collateralAuctionETH(1);
         uint previousBalance = address(this).balance;
-        
+
         keeperProxy.settleAuction(CollateralJoinLike(address(ethJoin)), auction);
         emit log_named_uint("Profit", address(this).balance - previousBalance);
         assertTrue(previousBalance < address(this).balance); // profit!
@@ -171,7 +170,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
     function testLiquidateAndSettleETHSAFE() public {
         uint safe = _generateUnsafeSafes(1);
         uint previousBalance = address(this).balance;
-        
+
         uint auction = keeperProxy.liquidateAndSettleSAFE(CollateralJoinLike(address(ethJoin)), manager.safes(safe));
         emit log_named_uint("Profit", address(this).balance - previousBalance);
         assertTrue(previousBalance < address(this).balance); // profit!
@@ -183,7 +182,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
     function testLiquidateAndSettleTokenCollateralSAFE() public {
         uint safe = _generateUnsafeCOLSafe();
         uint previousBalance = col.balanceOf(address(this));
-        
+
         uint auction = keeperProxy.liquidateAndSettleSAFE(CollateralJoinLike(address(colJoin)), manager.safes(safe));
         emit log_named_uint("Profit", col.balanceOf(address(this)) - previousBalance);
         assertTrue(previousBalance < col.balanceOf(address(this))); // profit!
@@ -197,7 +196,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         uint auction = liquidationEngine.liquidateSAFE("COL", manager.safes(safe));
 
         uint previousBalance = col.balanceOf(address(this));
-        
+
         keeperProxy.settleAuction(CollateralJoinLike(address(colJoin)), auction);
         emit log_named_uint("Profit", col.balanceOf(address(this)) - previousBalance);
         assertTrue(previousBalance < col.balanceOf(address(this))); // profit!
