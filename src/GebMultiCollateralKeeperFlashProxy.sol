@@ -1,4 +1,4 @@
-pragma solidity ^0.6.7;
+pragma solidity 0.6.7;
 
 import "./uni/interfaces/IUniswapV2Pair.sol";
 import "./uni/interfaces/IUniswapV2Factory.sol";
@@ -55,33 +55,24 @@ abstract contract LiquidationEngineLike {
 }
 
 /// @title GEB Multi Collateral Keeper Flash Proxy
-/// @notice Trustless proxy to allow for bidding in auctions and liquidating Safes using FlashSwaps
-/// @notice Multi collateral version, works both with ETH and ERC20 collateral
+/// @notice Trustless proxy to allow for bidding in auctions and liquidating SAFE's using Uniswap V2 flashswaps
+/// @notice Multi collateral version, works with both ETH and general ERC20 collateral
 contract GebMultiCollateralKeeperFlashProxy {
-    SAFEEngineLike          safeEngine;
-    CollateralLike          weth;
-    CollateralLike          coin;
-    CoinJoinLike            coinJoin;
-    IUniswapV2Pair          uniswapPair;
-    IUniswapV2Factory       uniswapFactory;
-    LiquidationEngineLike   liquidationEngine;
-    bytes32 public          collateralType;
-
-    // math aux functions
-    function subtract(uint x, uint y) internal pure returns (uint z) {
-        require((z = x - y) <= x, "sub-overflow");
-    }
-
-    function wad(uint rad) internal pure returns (uint) {
-        return rad / 10 ** 27;
-    }
+    SAFEEngineLike          public safeEngine;
+    CollateralLike          public weth;
+    CollateralLike          public coin;
+    CoinJoinLike            public coinJoin;
+    IUniswapV2Pair          public uniswapPair;
+    IUniswapV2Factory       public uniswapFactory;
+    LiquidationEngineLike   public liquidationEngine;
+    bytes32                 public collateralType;
 
     /// @notice Constructor
-    /// @param wethAddress weth address
-    /// @param systemCoinAddress system coin address
-    /// @param uniswapFactoryAddress uniswap v2 factory address
-    /// @param coinJoinAddress coinJoin address
-    /// @param liquidationEngineAddress liquidationEngine address
+    /// @param wethAddress WETH address
+    /// @param systemCoinAddress System coin address
+    /// @param uniswapFactoryAddress Uniswap V2 factory address
+    /// @param coinJoinAddress CoinJoin address
+    /// @param liquidationEngineAddress Liquidation engine address
     constructor(
         address wethAddress,
         address systemCoinAddress,
@@ -97,77 +88,46 @@ contract GebMultiCollateralKeeperFlashProxy {
         safeEngine          = liquidationEngine.safeEngine();
     }
 
-    /// @notice liquidates an underwater safe and settles the auction right away
-    /// @dev it will revert for protected safes (saviour), these need to be liquidated through liquidation engine
-    /// @param collateralJoin join address for the collateral
-    /// @param safe SafeId
-    /// @return auction auctionId;
-    function liquidateAndSettleSAFE(CollateralJoinLike collateralJoin, address safe) public returns (uint auction) {
-        collateralType = collateralJoin.collateralType();
-        if (liquidationEngine.safeSaviours(liquidationEngine.chosenSAFESaviour(collateralType, safe)) == 1) {
-            require (liquidationEngine.chosenSAFESaviour(collateralType, safe) == address(0),
-            "safe-is-protected.");
-        }
-
-        auction = liquidationEngine.liquidateSAFE(collateralType, safe);
-        settleAuction(collateralJoin, auction);
+    // --- Math ---
+    function subtract(uint x, uint y) internal pure returns (uint z) {
+        require((z = x - y) <= x, "GebMultiCollateralKeeperFlashProxy/sub-overflow");
+    }
+    function wad(uint rad) internal pure returns (uint) {
+        return rad / 10 ** 27;
     }
 
-    /// @notice Settle auction
-    /// @param collateralJoin join address for the collateral
-    /// @param auctionId id of the auction to be settled
-    function settleAuction(CollateralJoinLike collateralJoin, uint auctionId) public {
-        (AuctionHouseLike auctionHouse,,) = liquidationEngine.collateralTypes(collateralJoin.collateralType());
-        (uint raisedAmount,,, uint amountToRaise, uint48 auctionDeadline,,) = auctionHouse.bids(auctionId);
-        require(auctionDeadline > now, "auction-expired");
-        uint amount = subtract(amountToRaise, raisedAmount);
-        require(amount > 0, "auction-already-settled");
-
-        bytes memory callbackData = abi.encode(
-            msg.sender, 
-            address(collateralJoin),
-            address(auctionHouse),
-            auctionId, 
-            amount);   // rad 
-        
-        uniswapPair = IUniswapV2Pair(uniswapFactory.getPair(address(collateralJoin.collateral()), address(coin)));
-
-        safeEngine.approveSAFEModification(address(auctionHouse));
-        _startSwap(wad(amount) + 1, callbackData);
-        safeEngine.denySAFEModification(address(auctionHouse));
-    }
-
+    // --- Internal Utils ---
     /// @notice Initiates a flashwap
-    /// @param amount amount to borrow
-    /// @param data callback date, it will call this contract with the data
+    /// @param amount Amount to borrow
+    /// @param data Callback data
     function _startSwap(uint amount, bytes memory data) internal {
-
         uint amount0Out = address(coin) == uniswapPair.token0() ? amount : 0;
         uint amount1Out = address(coin) == uniswapPair.token1() ? amount : 0;
 
         uniswapPair.swap(amount0Out, amount1Out, address(this), data);
     }
 
-    /// @notice callback from Uniswap, funds in hands
-    /// @param _sender sender of the flashswap, should be address (this)
-    /// @param _amount0 amount of token0
-    /// @param _amount1 amount of token1
-    /// @param _data data sent back from uniswap
+    // --- External Utils ---
+    /// @notice Callback for Uniswap V2
+    /// @param _sender Flashswap requestor (must be this contract)
+    /// @param _amount0 Amount of token0
+    /// @param _amount1 Amount of token1
+    /// @param _data Data sent back from Uniswap
     function uniswapV2Call(address _sender, uint _amount0, uint _amount1, bytes calldata _data) external {
-        require(_sender == address(this), "invalid sender");
-        require(msg.sender == address(uniswapPair), "invalid uniswap pair");
+        require(_sender == address(this), "GebMultiCollateralKeeperFlashProxy/invalid-sender");
+        require(msg.sender == address(uniswapPair), "GebMultiCollateralKeeperFlashProxy/invalid-uniswap-pair");
 
         (address caller, CollateralJoinLike collateralJoin, AuctionHouseLike auctionHouse, uint auctionId, uint amount) = abi.decode(
             _data, (address, CollateralJoinLike, AuctionHouseLike, uint, uint)
         );
 
-        uint wadAmount = wad(amount) + 1; 
+        uint wadAmount = wad(amount) + 1;
 
         // join COIN
         coin.approve(address(coinJoin), wadAmount);
         coinJoin.join(address(this), wadAmount);
 
-        // bid 
+        // bid
         auctionHouse.buyCollateral(auctionId, amount);
 
         // exit collateral
@@ -177,9 +137,9 @@ contract GebMultiCollateralKeeperFlashProxy {
         uint pairBalanceTokenBorrow = coin.balanceOf(address(uniswapPair));
         uint pairBalanceTokenPay = collateralJoin.collateral().balanceOf(address(uniswapPair));
         uint amountToRepay = ((1000 * pairBalanceTokenPay * wadAmount ) / (997 * pairBalanceTokenBorrow)) + 1;
-        require(amountToRepay <= collateralJoin.collateral().balanceOf(address(this)), "profit not enough to repay the flashswap");
-        collateralJoin.collateral().transfer(address(uniswapPair), amountToRepay); 
-        
+        require(amountToRepay <= collateralJoin.collateral().balanceOf(address(this)), "GebMultiCollateralKeeperFlashProxy/profit-not-enough-to-repay-the-flashswap");
+        collateralJoin.collateral().transfer(address(uniswapPair), amountToRepay);
+
         // send profit back
         if (collateralJoin.collateral() == weth) {
             uint profit = weth.balanceOf(address(this));
@@ -190,10 +150,51 @@ contract GebMultiCollateralKeeperFlashProxy {
         }
 
         uniswapPair = IUniswapV2Pair(address(0x0));
-
     }
 
+    // --- Core Bidding and Settling Logic ---
+    /// @notice Liquidates an underwater SAFE and settles the auction right away
+    /// @dev It will revert for protected safes (saviour), these need to be liquidated through liquidation engine
+    /// @param collateralJoin Join address for a collateral type
+    /// @param safe A SAFE's ID
+    /// @return auction Auction ID
+    function liquidateAndSettleSAFE(CollateralJoinLike collateralJoin, address safe) public returns (uint auction) {
+        collateralType = collateralJoin.collateralType();
+        if (liquidationEngine.safeSaviours(liquidationEngine.chosenSAFESaviour(collateralType, safe)) == 1) {
+            require (liquidationEngine.chosenSAFESaviour(collateralType, safe) == address(0),
+            "GebMultiCollateralKeeperFlashProxy/safe-is-protected");
+        }
+
+        auction = liquidationEngine.liquidateSAFE(collateralType, safe);
+        settleAuction(collateralJoin, auction);
+    }
+
+    /// @notice Settle an auction
+    /// @param collateralJoin Join address for a collateral type
+    /// @param auctionId ID of the auction to be settled
+    function settleAuction(CollateralJoinLike collateralJoin, uint auctionId) public {
+        (AuctionHouseLike auctionHouse,,) = liquidationEngine.collateralTypes(collateralJoin.collateralType());
+        (uint raisedAmount,,, uint amountToRaise, uint48 auctionDeadline,,) = auctionHouse.bids(auctionId);
+        require(auctionDeadline > now, "GebMultiCollateralKeeperFlashProxy/auction-expired");
+        uint amount = subtract(amountToRaise, raisedAmount);
+        require(amount > 0, "GebMultiCollateralKeeperFlashProxy/auction-already-settled");
+
+        bytes memory callbackData = abi.encode(
+            msg.sender,
+            address(collateralJoin),
+            address(auctionHouse),
+            auctionId,
+            amount);   // rad
+
+        uniswapPair = IUniswapV2Pair(uniswapFactory.getPair(address(collateralJoin.collateral()), address(coin)));
+
+        safeEngine.approveSAFEModification(address(auctionHouse));
+        _startSwap(wad(amount) + 1, callbackData);
+        safeEngine.denySAFEModification(address(auctionHouse));
+    }
+
+    // --- Fallback ---
     receive() external payable {
-        require(msg.sender == address(weth), "only weth withdrawals allowed");
+        require(msg.sender == address(weth), "GebMultiCollateralKeeperFlashProxy/only-weth-withdrawals-allowed");
     }
 }
