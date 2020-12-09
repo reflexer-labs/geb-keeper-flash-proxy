@@ -80,6 +80,12 @@ contract GebUniswapV2MultiCollateralKeeperFlashProxy {
         address coinJoinAddress,
         address liquidationEngineAddress
     ) public {
+        require(wethAddress != address(0), "GebUniswapV2MultiCollateralKeeperFlashProxy/null-weth");
+        require(systemCoinAddress != address(0), "GebUniswapV2MultiCollateralKeeperFlashProxy/null-system-coin");
+        require(uniswapFactoryAddress != address(0), "GebUniswapV2MultiCollateralKeeperFlashProxy/null-uniswap-factory");
+        require(coinJoinAddress != address(0), "GebUniswapV2MultiCollateralKeeperFlashProxy/null-coin-join");
+        require(liquidationEngineAddress != address(0), "GebUniswapV2MultiCollateralKeeperFlashProxy/null-liquidation-engine");
+
         weth                = CollateralLike(wethAddress);
         coin                = CollateralLike(systemCoinAddress);
         uniswapFactory      = IUniswapV2Factory(uniswapFactoryAddress);

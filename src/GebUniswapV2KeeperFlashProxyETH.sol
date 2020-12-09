@@ -66,12 +66,12 @@ contract GebUniswapV2KeeperFlashProxyETH {
     bytes32                public collateralType;
 
     /// @notice Constructor
-    /// @param auctionHouseAddress address of the auction house
-    /// @param wethAddress weth address
-    /// @param systemCoinAddress system coin address
-    /// @param uniswapPairAddress uniswap v2 pair address
-    /// @param coinJoinAddress coinJoin address
-    /// @param ethJoinAddress ethJoin address
+    /// @param auctionHouseAddress Address of the auction house
+    /// @param wethAddress WETH address
+    /// @param systemCoinAddress System coin address
+    /// @param uniswapPairAddress Uniswap V2 pair address
+    /// @param coinJoinAddress CoinJoin address
+    /// @param ethJoinAddress ETHJoin address
     constructor(
         address auctionHouseAddress,
         address wethAddress,
@@ -80,6 +80,13 @@ contract GebUniswapV2KeeperFlashProxyETH {
         address coinJoinAddress,
         address ethJoinAddress
     ) public {
+        require(auctionHouseAddress != address(0), "GebUniswapV2KeeperFlashProxyETH/null-auction-house");
+        require(wethAddress != address(0), "GebUniswapV2KeeperFlashProxyETH/null-weth");
+        require(systemCoinAddress != address(0), "GebUniswapV2KeeperFlashProxyETH/null-system-coin");
+        require(uniswapPairAddress != address(0), "GebUniswapV2KeeperFlashProxyETH/null-uniswap-pair");
+        require(coinJoinAddress != address(0), "GebUniswapV2KeeperFlashProxyETH/null-coin-join");
+        require(ethJoinAddress != address(0), "GebUniswapV2KeeperFlashProxyETH/null-eth-join");
+
         auctionHouse        = AuctionHouseLike(auctionHouseAddress);
         weth                = CollateralLike(wethAddress);
         coin                = CollateralLike(systemCoinAddress);
@@ -102,9 +109,9 @@ contract GebUniswapV2KeeperFlashProxyETH {
     }
 
     // --- External Utils ---
-    /// @notice bids in a single auction
-    /// @param auctionId auction Id
-    /// @param amount amount to bid
+    /// @notice Bids in a single auction
+    /// @param auctionId Auction Id
+    /// @param amount Amount to bid
     function bid(uint auctionId, uint amount) external {
         require(msg.sender == address(this), "GebUniswapV2KeeperFlashProxyETH/only-self");
         auctionHouse.buyCollateral(auctionId, amount);
@@ -118,11 +125,11 @@ contract GebUniswapV2KeeperFlashProxyETH {
             auctionHouse.buyCollateral(auctionIds[i], amounts[i]);
         }
     }
-    /// @notice callback from Uniswap, funds in hands
-    /// @param _sender sender of the flashswap, should be address (this)
-    /// @param _amount0 amount of token0
-    /// @param _amount1 amount of token1
-    /// @param _data data sent back from uniswap
+    /// @notice Callback for/from Uniswap V2
+    /// @param _sender Requestor of the flashswap (must be this address)
+    /// @param _amount0 Amount of token0
+    /// @param _amount1 Amount of token1
+    /// @param _data Data sent back from Uniswap
     function uniswapV2Call(address _sender, uint _amount0, uint _amount1, bytes calldata _data) external {
         require(_sender == address(this), "GebUniswapV2KeeperFlashProxyETH/invalid-sender");
         require(msg.sender == address(uniswapPair), "GebUniswapV2KeeperFlashProxyETH/invalid-uniswap-pair");
@@ -165,10 +172,10 @@ contract GebUniswapV2KeeperFlashProxyETH {
 
         uniswapPair.swap(amount0Out, amount1Out, address(this), data);
     }
-    /// @notice returns all open opprtunities from a provided auction list
-    /// @param auctionIds auction Ids
-    /// @return ids ids of active auctions;
-    /// @return bidAmounts Rad amounts to be bidded;
+    /// @notice Returns all open opprtunities from a provided auction list
+    /// @param auctionIds Auction IDs
+    /// @return ids IDs of active auctions;
+    /// @return bidAmounts Rad amounts to bid
     /// @return totalAmount Wad amount to be borrowed
     function getOpenAuctionsBidSizes(uint[] memory auctionIds) internal returns (uint[] memory, uint[] memory, uint) {
         uint48          auctionDeadline;
@@ -213,7 +220,7 @@ contract GebUniswapV2KeeperFlashProxyETH {
         settleAuction(auction);
     }
     /// @notice Settle auction
-    /// @param auctionId id of the auction to be settled
+    /// @param auctionId ID of the auction to be settled
     function settleAuction(uint auctionId) public {
         (uint raisedAmount,,, uint amountToRaise, uint48 auctionDeadline,,) = auctionHouse.bids(auctionId);
         require(auctionDeadline > now, "GebUniswapV2KeeperFlashProxyETH/auction-expired");
