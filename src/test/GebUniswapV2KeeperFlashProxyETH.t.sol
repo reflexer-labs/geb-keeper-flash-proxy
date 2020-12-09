@@ -16,11 +16,11 @@ import "../uni/UniswapV2Factory.sol";
 import "../uni/UniswapV2Pair.sol";
 import "../uni/UniswapV2Router02.sol";
 
-import "../GebKeeperFlashProxy.sol";
+import "../GebUniswapV2KeeperFlashProxyETH.sol";
 
-contract GebKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions {
+contract GebUniswapV2KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncentivesActions {
     GebSafeManager manager;
-    GebKeeperFlashProxy keeperProxy;
+    GebUniswapV2KeeperFlashProxyETH keeperProxy;
 
     UniswapV2Factory uniswapFactory;
     UniswapV2Router02 uniswapRouter;
@@ -59,7 +59,7 @@ contract GebKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions
         raiETHPair.transfer(address(0), raiETHPair.balanceOf(address(this)));
 
         // keeper Proxy
-        keeperProxy = new GebKeeperFlashProxy(
+        keeperProxy = new GebUniswapV2KeeperFlashProxyETH(
             address(ethFixedDiscountCollateralAuctionHouse),
             address(weth),
             address(coin),

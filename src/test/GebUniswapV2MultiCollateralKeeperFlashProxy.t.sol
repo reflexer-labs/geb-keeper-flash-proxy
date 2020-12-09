@@ -17,11 +17,11 @@ import "../uni/UniswapV2Factory.sol";
 import "../uni/UniswapV2Pair.sol";
 import "../uni/UniswapV2Router02.sol";
 
-import "../GebMultiCollateralKeeperFlashProxy.sol";
+import "../GebUniswapV2MultiCollateralKeeperFlashProxy.sol";
 
 contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions {
     GebSafeManager manager;
-    GebMultiCollateralKeeperFlashProxy keeperProxy;
+    GebUniswapV2MultiCollateralKeeperFlashProxy keeperProxy;
 
     DSProxy proxy;
     address gebProxyActions;
@@ -83,7 +83,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         raiCOLPair.transfer(address(0), raiCOLPair.balanceOf(address(this)));
 
         // keeper Proxy
-        keeperProxy = new GebMultiCollateralKeeperFlashProxy(
+        keeperProxy = new GebUniswapV2MultiCollateralKeeperFlashProxy(
             address(weth),
             address(coin),
             address(uniswapFactory),
