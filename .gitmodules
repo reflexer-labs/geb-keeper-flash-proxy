@@ -4,6 +4,3 @@
 [submodule "lib/ds-token"]
 	path = lib/ds-token
 	url = https://github.com/reflexer-labs/ds-token.git
-[submodule "lib/geb-proxy-actions"]
-	path = lib/geb-proxy-actions
-	url = https://github.com/reflexer-labs/geb-proxy-actions.git
