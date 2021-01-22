@@ -10,7 +10,7 @@ import {FixedDiscountCollateralAuctionHouse} from "geb/CollateralAuctionHouse.so
 import {CollateralJoin3, CollateralJoin4} from "geb-deploy/AdvancedTokenAdapters.sol";
 import {GebSafeManager} from "geb-safe-manager/GebSafeManager.sol";
 import {GetSafes} from "geb-safe-manager/GetSafes.sol";
-import {GebProxyIncentivesActions} from "geb-proxy-actions/GebProxyActions.sol";
+import {GebProxyIncentivesActions} from "geb-proxy-actions/GebProxyIncentivesActions.sol";
 
 import "../uni/UniswapV2Factory.sol";
 import "../uni/UniswapV2Pair.sol";

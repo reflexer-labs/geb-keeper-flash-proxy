@@ -10,7 +10,8 @@ import {CollateralJoin3, CollateralJoin4} from "geb-deploy/AdvancedTokenAdapters
 import {DSValue} from "ds-value/value.sol";
 import {GebSafeManager} from "geb-safe-manager/GebSafeManager.sol";
 import {GetSafes} from "geb-safe-manager/GetSafes.sol";
-import {GebProxyActions, GebProxyIncentivesActions} from "geb-proxy-actions/GebProxyActions.sol";
+import {GebProxyActions} from "geb-proxy-actions/GebProxyActions.sol";
+import {GebProxyIncentivesActions} from "geb-proxy-actions/GebProxyIncentivesActions.sol";
 import {GebProxyRegistry, DSProxyFactory, DSProxy} from "geb-proxy-registry/GebProxyRegistry.sol";
 
 import "../uni/UniswapV2Factory.sol";
