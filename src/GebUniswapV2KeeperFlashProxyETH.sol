@@ -51,7 +51,7 @@ abstract contract LiquidationEngineLike {
 }
 
 /// @title GEB Keeper Flash Proxy
-/// @notice Trustless proxy to allow for bidding in auctions and liquidating SAFEs using Uniswap V2 flashswaps
+/// @notice Trustless proxy that facilitates SAFE liquidation and bidding in auctions using Uniswap V2 flashswaps
 /// @notice Single collateral version, only meant to work with ETH collateral types
 contract GebUniswapV2KeeperFlashProxyETH {
     AuctionHouseLike       public auctionHouse;
@@ -172,10 +172,10 @@ contract GebUniswapV2KeeperFlashProxyETH {
 
         uniswapPair.swap(amount0Out, amount1Out, address(this), data);
     }
-    /// @notice Returns all open opprtunities from a provided auction list
+    /// @notice Returns all available opportunities from a provided auction list
     /// @param auctionIds Auction IDs
     /// @return ids IDs of active auctions;
-    /// @return bidAmounts Rad amounts to bid
+    /// @return bidAmounts Rad amounts still requested by auctions
     /// @return totalAmount Wad amount to be borrowed
     function getOpenAuctionsBidSizes(uint[] memory auctionIds) internal returns (uint[] memory, uint[] memory, uint) {
         uint48          auctionDeadline;
@@ -207,7 +207,7 @@ contract GebUniswapV2KeeperFlashProxyETH {
 
     // --- Core Bidding and Settling Logic ---
     /// @notice Liquidates an underwater safe and settles the auction right away
-    /// @dev It will revert for protected SAFEs (thos who have saviours). Protected SAFEs need to be liquidated through liquidation engine
+    /// @dev It will revert for protected SAFEs (those that have saviours). Protected SAFEs need to be liquidated through the LiquidationEngine
     /// @param safe A SAFE's ID
     /// @return auction The auction ID
     function liquidateAndSettleSAFE(address safe) public returns (uint auction) {
