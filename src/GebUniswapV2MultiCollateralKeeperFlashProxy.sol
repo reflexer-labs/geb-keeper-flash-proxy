@@ -55,7 +55,7 @@ abstract contract LiquidationEngineLike {
 }
 
 /// @title GEB Multi Collateral Keeper Flash Proxy
-/// @notice Trustless proxy to allow for bidding in auctions and liquidating SAFE's using Uniswap V2 flashswaps
+/// @notice Trustless proxy that facilitates SAFE liquidation and bidding in collateral auctions using Uniswap V2 flashswaps
 /// @notice Multi collateral version, works with both ETH and general ERC20 collateral
 contract GebUniswapV2MultiCollateralKeeperFlashProxy {
     SAFEEngineLike          public safeEngine;
@@ -160,7 +160,7 @@ contract GebUniswapV2MultiCollateralKeeperFlashProxy {
 
     // --- Core Bidding and Settling Logic ---
     /// @notice Liquidates an underwater SAFE and settles the auction right away
-    /// @dev It will revert for protected safes (saviour), these need to be liquidated through liquidation engine
+    /// @dev It will revert for protected safes (those that have saviours), these need to be liquidated through the LiquidationEngine
     /// @param collateralJoin Join address for a collateral type
     /// @param safe A SAFE's ID
     /// @return auction Auction ID
