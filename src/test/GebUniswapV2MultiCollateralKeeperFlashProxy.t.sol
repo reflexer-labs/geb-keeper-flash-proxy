@@ -32,8 +32,11 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
     UniswapV2Router02 uniswapRouter;
     UniswapV2Pair raiETHPair;
     UniswapV2Pair raiCOLPair;
+
     uint256 initETHRAIPairLiquidity = 5 ether;               // 1250 USD
     uint256 initRAIETHPairLiquidity = 294.672324375E18;      // 1 RAI = 4.242 USD
+
+    uint[] safes;
 
     bytes32 collateralAuctionType = bytes32("FIXED_DISCOUNT");
 
@@ -93,11 +96,10 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         );
     }
 
+    // --- Utils ---
     function lockTokenCollateralAndGenerateDebt(address, address, address, address, uint, uint, uint, bool) public {
         proxy.execute(gebProxyActions, msg.data);
     }
-
-    uint[] safes;
     function _collateralAuctionETH(uint numberOfAuctions) internal returns (uint lastBidId) {
         this.modifyParameters(address(liquidationEngine), "ETH", "liquidationQuantity", rad(1000 ether));
         this.modifyParameters(address(liquidationEngine), "ETH", "liquidationPenalty", WAD);
@@ -118,7 +120,6 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
             lastBidId = liquidationEngine.liquidateSAFE("ETH", manager.safes(safes[i]));
         }
     }
-
     function _generateUnsafeSafes(uint numberOfSafes) internal returns (uint lastSafeId) {
         this.modifyParameters(address(liquidationEngine), "ETH", "liquidationQuantity", rad(1000 ether));
         this.modifyParameters(address(liquidationEngine), "ETH", "liquidationPenalty", WAD);
@@ -136,7 +137,6 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         orclETH.updateResult(uint(300 * 10 ** 18 - 1)); // Force liquidation
         oracleRelayer.updateCollateralPrice("ETH");
     }
-
     function _generateUnsafeCOLSafe() internal returns (uint safe) {
         this.modifyParameters(address(liquidationEngine), "COL", "liquidationQuantity", rad(100 ether));
         this.modifyParameters(address(liquidationEngine), "COL", "liquidationPenalty", WAD);
@@ -150,6 +150,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         oracleRelayer.updateCollateralPrice("COL");
     }
 
+    // --- Tests ---
     function testSettleETHAuction() public {
         uint auction = _collateralAuctionETH(1);
         uint previousBalance = address(this).balance;

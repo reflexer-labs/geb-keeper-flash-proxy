@@ -69,6 +69,7 @@ contract GebUniswapV2KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
         );
     }
 
+    // --- Utils ---
     uint[] safes;
     function _collateralAuctionETH(uint numberOfAuctions) internal returns (uint lastBidId) {
         this.modifyParameters(address(liquidationEngine), "ETH", "liquidationQuantity", rad(1000 ether));
@@ -90,7 +91,6 @@ contract GebUniswapV2KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
             lastBidId = liquidationEngine.liquidateSAFE("ETH", manager.safes(safes[i]));
         }
     }
-
     function _generateUnsafeSafes(uint numberOfSafes) internal returns (uint lastSafeId) {
         this.modifyParameters(address(liquidationEngine), "ETH", "liquidationQuantity", rad(1000 ether));
         this.modifyParameters(address(liquidationEngine), "ETH", "liquidationPenalty", WAD);
@@ -109,6 +109,7 @@ contract GebUniswapV2KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
         oracleRelayer.updateCollateralPrice("ETH");
     }
 
+    // --- Tests ---
     function testSettleAuction() public {
         uint auction = _collateralAuctionETH(1);
         uint previousBalance = address(this).balance;
@@ -126,11 +127,12 @@ contract GebUniswapV2KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
 
         keeperProxy.settleAuction(lastAuction);
 
-        /* auctions.push(lastAuction);      // auction already taken, will settle others
+        auctions.push(lastAuction);      // auction already taken, will settle others
         auctions.push(lastAuction - 3);
         auctions.push(lastAuction - 4);
         auctions.push(lastAuction - 8);
-        auctions.push(uint(0) - 1);      // unexistent auction, should still settle existing ones
+        auctions.push(uint(0) - 1);      // inexistent auction, should still settle existing ones
+
         uint previousBalance = address(this).balance;
         keeperProxy.settleAuction(auctions);
         emit log_named_uint("Profit", address(this).balance - previousBalance);
@@ -139,7 +141,7 @@ contract GebUniswapV2KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
         for (uint i = 0; i < auctions.length; i++) {
             (, uint amountToRaise,,,,,,,) = ethIncreasingDiscountCollateralAuctionHouse.bids(auctions[i]);
             assertEq(amountToRaise, 0);
-        } */
+        }
     }
 
     function testFailSettleAuctionTwice() public {
