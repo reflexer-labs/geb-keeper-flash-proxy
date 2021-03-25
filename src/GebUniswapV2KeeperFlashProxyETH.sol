@@ -4,13 +4,13 @@ import "./uni/interfaces/IUniswapV2Pair.sol";
 
 abstract contract AuctionHouseLike {
     function bids(uint256) virtual external view returns (uint, uint);
-    function buyCollateral(uint256, uint256) virtual external;
-    function liquidationEngine() virtual public view returns (LiquidationEngineLike);
-    function collateralType() virtual public view returns (bytes32);
+    function buyCollateral(uint256 id, uint256 wad) external virtual;
+    function liquidationEngine() view public virtual returns (LiquidationEngineLike);
+    function collateralType() view public virtual returns (bytes32);
 }
 
 abstract contract SAFEEngineLike {
-    function tokenCollateral(bytes32, address) virtual public view returns (uint256);
+    mapping (bytes32 => mapping (address => uint256))  public tokenCollateral;  // [wad]
     function canModifySAFE(address, address) virtual public view returns (uint);
     function collateralTypes(bytes32) virtual public view returns (uint, uint, uint, uint, uint);
     function coinBalance(address) virtual public view returns (uint);
@@ -35,26 +35,24 @@ abstract contract CoinJoinLike {
 }
 
 abstract contract CollateralLike {
-    function approve(address, uint256) virtual public;
-    function transfer(address, uint256) virtual public;
-    function transferFrom(address, address, uint256) virtual public;
+    function approve(address, uint) virtual public;
+    function transfer(address, uint) virtual public;
+    function transferFrom(address, address, uint) virtual public;
     function deposit() virtual public payable;
-    function withdraw(uint256) virtual public;
-    function balanceOf(address) virtual public view returns (uint256);
+    function withdraw(uint) virtual public;
+    function balanceOf(address) virtual public view returns (uint);
 }
 
 abstract contract LiquidationEngineLike {
     function chosenSAFESaviour(bytes32, address) virtual public view returns (address);
     function safeSaviours(address) virtual public view returns (uint256);
-    function liquidateSAFE(bytes32, address) virtual external returns (uint256 auctionId);
+    function liquidateSAFE(bytes32 collateralType, address safe) virtual external returns (uint256 auctionId);
     function safeEngine() view public virtual returns (SAFEEngineLike);
 }
 
-/*
-* @title GEB Keeper Flash Proxy
-* @notice Trustless proxy that facilitates SAFE liquidation and bidding in auctions using Uniswap V2 flashswaps
-* @notice Single collateral version, only meant to work with ETH collateral types
-*/
+/// @title GEB Keeper Flash Proxy
+/// @notice Trustless proxy that facilitates SAFE liquidation and bidding in auctions using Uniswap V2 flashswaps
+/// @notice Single collateral version, only meant to work with ETH collateral types
 contract GebUniswapV2KeeperFlashProxyETH {
     AuctionHouseLike       public auctionHouse;
     SAFEEngineLike         public safeEngine;
@@ -107,22 +105,17 @@ contract GebUniswapV2KeeperFlashProxyETH {
         safeEngine.approveSAFEModification(address(auctionHouse));
     }
 
-    // --- Boolean Logic ---
-    function both(bool x, bool y) internal pure returns (bool z) {
-        assembly{ z := and(x, y)}
-    }
-
     // --- Math ---
     function addition(uint256 x, uint256 y) internal pure returns (uint256 z) {
         require((z = x + y) >= x, "GebUniswapV2KeeperFlashProxyETH/add-overflow");
     }
-    function subtract(uint256 x, uint256 y) internal pure returns (uint256 z) {
-        require((z = x - y) <= x, "GebUniswapV2KeeperFlashProxyETH/sub-overflow");
+    function subtract(uint x, uint y) internal pure returns (uint z) {
+        require((z = x - y) <= x, "GebUniswapV2KeeperFlashProxyETH/sub-underflow");
     }
     function multiply(uint x, uint y) internal pure returns (uint z) {
-        require(y == 0 || (z = x * y) / y == x, "GebUniswapV2KeeperFlashProxyETH/mul-overflow");
+        require(y == ZERO || (z = x * y) / y == x, "GebUniswapV2KeeperFlashProxyETH/mul-overflow");
     }
-    function wad(uint256 rad) internal pure returns (uint256) {
+    function wad(uint rad) internal pure returns (uint) {
         return rad / 10 ** 27;
     }
 
@@ -139,7 +132,7 @@ contract GebUniswapV2KeeperFlashProxyETH {
     /// @param amounts Amounts to bid
     function multipleBid(uint[] calldata auctionIds, uint[] calldata amounts) external {
         require(msg.sender == address(this), "GebUniswapV2KeeperFlashProxyETH/only-self");
-        for (uint i = 0; i < auctionIds.length; i++) {
+        for (uint i = ZERO; i < auctionIds.length; i++) {
             auctionHouse.buyCollateral(auctionIds[i], amounts[i]);
         }
     }
@@ -147,13 +140,13 @@ contract GebUniswapV2KeeperFlashProxyETH {
     /// @param _sender Requestor of the flashswap (must be this address)
     /// @param _amount0 Amount of token0
     /// @param _amount1 Amount of token1
-    /// @param _data Data sent back from Uniswap V2
-    function uniswapV2Call(address _sender, uint256 _amount0, uint256 _amount1, bytes calldata _data) external {
+    /// @param _data Data sent back from Uniswap
+    function uniswapV2Call(address _sender, uint _amount0, uint _amount1, bytes calldata _data) external {
         require(_sender == address(this), "GebUniswapV2KeeperFlashProxyETH/invalid-sender");
         require(msg.sender == address(uniswapPair), "GebUniswapV2KeeperFlashProxyETH/invalid-uniswap-pair");
 
         // join system coins
-        uint amount = (_amount0 == 0 ? _amount1 : _amount0);
+        uint amount = (_amount0 == ZERO ? _amount1 : _amount0);
         coin.approve(address(coinJoin), amount);
         coinJoin.join(address(this), amount);
 
@@ -166,8 +159,8 @@ contract GebUniswapV2KeeperFlashProxyETH {
 
         // repay loan
         uint pairBalanceTokenBorrow = coin.balanceOf(address(uniswapPair));
-        uint pairBalanceTokenPay    = weth.balanceOf(address(uniswapPair));
-        uint amountToRepay          = addition((
+        uint pairBalanceTokenPay = weth.balanceOf(address(uniswapPair));
+        uint amountToRepay = addition((
           multiply(multiply(THOUSAND, pairBalanceTokenPay), amount) /
           multiply(NET_OUT_AMOUNT, pairBalanceTokenBorrow)
         ), ONE);
@@ -189,8 +182,8 @@ contract GebUniswapV2KeeperFlashProxyETH {
     function _startSwap(uint amount, bytes memory data) internal {
         caller = msg.sender;
 
-        uint amount0Out = address(coin) == uniswapPair.token0() ? amount : 0;
-        uint amount1Out = address(coin) == uniswapPair.token1() ? amount : 0;
+        uint amount0Out = address(coin) == uniswapPair.token0() ? amount : ZERO;
+        uint amount1Out = address(coin) == uniswapPair.token1() ? amount : ZERO;
 
         uniswapPair.swap(amount0Out, amount1Out, address(this), data);
     }
@@ -200,7 +193,6 @@ contract GebUniswapV2KeeperFlashProxyETH {
     /// @return bidAmounts Rad amounts still requested by auctions
     /// @return totalAmount Wad amount to be borrowed
     function getOpenAuctionsBidSizes(uint[] memory auctionIds) internal returns (uint[] memory, uint[] memory, uint) {
-        uint48          discountIncreaseDeadline;
         uint            amountToRaise;
         uint            totalAmount;
         uint            opportunityCount;
@@ -208,12 +200,12 @@ contract GebUniswapV2KeeperFlashProxyETH {
         uint[] memory   ids = new uint[](auctionIds.length);
         uint[] memory   bidAmounts = new uint[](auctionIds.length);
 
-        for (uint i = 0; i < auctionIds.length; i++) {
+        for (uint i = ZERO; i < auctionIds.length; i++) {
             (, amountToRaise) = auctionHouse.bids(auctionIds[i]);
 
-            if (both(amountToRaise > 0, discountIncreaseDeadline > 0)) {
-                totalAmount = addition(wad(amountToRaise), ONE);
-                ids[opportunityCount] = auctionIds[i];
+            if (amountToRaise > ZERO) {
+                totalAmount                  = addition(totalAmount, addition(wad(amountToRaise), ONE));
+                ids[opportunityCount]        = auctionIds[i];
                 bidAmounts[opportunityCount] = amountToRaise;
                 opportunityCount++;
             }
@@ -235,27 +227,27 @@ contract GebUniswapV2KeeperFlashProxyETH {
     function liquidateAndSettleSAFE(address safe) public returns (uint auction) {
         if (liquidationEngine.safeSaviours(liquidationEngine.chosenSAFESaviour(collateralType, safe)) == ONE) {
             require (liquidationEngine.chosenSAFESaviour(collateralType, safe) == address(0),
-            "GebUniswapV2KeeperFlashProxyETH/safe-is-protected.");
+            "GebUniswapV2KeeperFlashProxyETH/safe-is-protected");
         }
 
         auction = liquidationEngine.liquidateSAFE(collateralType, safe);
         settleAuction(auction);
     }
-    /// @notice Settle an auction
+    /// @notice Settle auction
     /// @param auctionId ID of the auction to be settled
     function settleAuction(uint auctionId) public {
         (, uint amountToRaise) = auctionHouse.bids(auctionId);
-        require(amountToRaise > 0, "GebUniswapV2KeeperFlashProxyETH/auction-already-settled");
+        require(amountToRaise > ZERO, "GebUniswapV2KeeperFlashProxyETH/auction-already-settled");
 
         bytes memory callbackData = abi.encodeWithSelector(this.bid.selector, auctionId, amountToRaise);
 
         _startSwap(addition(wad(amountToRaise), ONE), callbackData);
     }
-    /// @notice Settle multiple auctions
+    /// @notice Settle auctions
     /// @param auctionIds IDs of the auctions to be settled
     function settleAuction(uint[] memory auctionIds) public {
-        (uint256[] memory ids, uint256[] memory bidAmounts, uint256 totalAmount) = getOpenAuctionsBidSizes(auctionIds);
-        require(totalAmount > 0, "GebUniswapV2KeeperFlashProxyETH/all-auctions-already-settled");
+        (uint[] memory ids, uint[] memory bidAmounts, uint totalAmount) = getOpenAuctionsBidSizes(auctionIds);
+        require(totalAmount > ZERO, "GebUniswapV2KeeperFlashProxyETH/all-auctions-already-settled");
 
         bytes memory callbackData = abi.encodeWithSelector(this.multipleBid.selector, ids, bidAmounts);
 

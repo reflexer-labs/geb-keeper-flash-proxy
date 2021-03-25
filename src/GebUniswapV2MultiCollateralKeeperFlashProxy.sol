@@ -160,7 +160,7 @@ contract GebUniswapV2MultiCollateralKeeperFlashProxy {
           multiply(NET_OUT_AMOUNT, pairBalanceTokenBorrow)
         ), ONE);
 
-        require(amountToRepay <= collateralJoin.collateral().balanceOf(address(this)), "GebUniswapV2MultiCollateralKeeperFlashProxy/profit-not-enough-to-repay-the-flashswap");
+        require(amountToRepay <= collateralJoin.collateral().balanceOf(address(this)), "GebUniswapV2MultiCollateralKeeperFlashProxy/unprofitable");
         collateralJoin.collateral().transfer(address(uniswapPair), amountToRepay);
 
         // send profit back
@@ -197,7 +197,7 @@ contract GebUniswapV2MultiCollateralKeeperFlashProxy {
     /// @param auctionId ID of the auction to be settled
     function settleAuction(CollateralJoinLike collateralJoin, uint auctionId) public {
         (AuctionHouseLike auctionHouse,,) = liquidationEngine.collateralTypes(collateralJoin.collateralType());
-        (, uint amountToRaise) =  auctionHouse.bids(auctionId);
+        (, uint amountToRaise) = auctionHouse.bids(auctionId);
         require(amountToRaise > ZERO, "GebUniswapV2MultiCollateralKeeperFlashProxy/auction-already-settled");
 
         bytes memory callbackData = abi.encode(
