@@ -3,7 +3,7 @@ pragma solidity 0.6.7;
 import "./uni/interfaces/IUniswapV2Pair.sol";
 
 abstract contract AuctionHouseLike {
-    function bids(uint) external view virtual returns (uint, uint, uint, uint, uint48, address, address);
+    function bids(uint) external view virtual returns (uint, uint, uint, uint, uint, uint, uint48, address, address);
     function buyCollateral(uint256 id, uint256 wad) external virtual;
     function liquidationEngine() view public virtual returns (LiquidationEngineLike);
     function collateralType() view public virtual returns (bytes32);
@@ -174,26 +174,24 @@ contract GebUniswapV2KeeperFlashProxyETH {
     }
     /// @notice Returns all available opportunities from a provided auction list
     /// @param auctionIds Auction IDs
-    /// @return ids IDs of active auctions;
+    /// @return ids IDs of active auctions
     /// @return bidAmounts Rad amounts still requested by auctions
     /// @return totalAmount Wad amount to be borrowed
     function getOpenAuctionsBidSizes(uint[] memory auctionIds) internal returns (uint[] memory, uint[] memory, uint) {
-        uint48          auctionDeadline;
+        uint48          discountIncreaseDeadline;
         uint            amountToRaise;
-        uint            raisedAmount;
-        uint            amountAvailable;
         uint            totalAmount;
         uint            opportunityCount;
+
         uint[] memory   ids = new uint[](auctionIds.length);
         uint[] memory   bidAmounts = new uint[](auctionIds.length);
 
         for (uint i = 0; i < auctionIds.length; i++) {
-            (raisedAmount,,, amountToRaise, auctionDeadline,,) = auctionHouse.bids(auctionIds[i]);
-            amountAvailable = subtract(amountToRaise, raisedAmount);
-            if ( amountAvailable > 0 && auctionDeadline > now) {
-                totalAmount += wad(amountAvailable) + 1;
+            (, amountToRaise,,,,, discountIncreaseDeadline,,) = auctionHouse.bids(auctionIds[i]);
+            if (amountToRaise > 0 && discountIncreaseDeadline > 0) {
+                totalAmount += wad(amountToRaise) + 1;
                 ids[opportunityCount] = auctionIds[i];
-                bidAmounts[opportunityCount] = amountAvailable;
+                bidAmounts[opportunityCount] = amountToRaise;
                 opportunityCount++;
             }
         }
@@ -222,14 +220,13 @@ contract GebUniswapV2KeeperFlashProxyETH {
     /// @notice Settle auction
     /// @param auctionId ID of the auction to be settled
     function settleAuction(uint auctionId) public {
-        (uint raisedAmount,,, uint amountToRaise, uint48 auctionDeadline,,) = auctionHouse.bids(auctionId);
-        require(auctionDeadline > now, "GebUniswapV2KeeperFlashProxyETH/auction-expired");
-        uint amount = subtract(amountToRaise, raisedAmount);
-        require(amount > 0, "GebUniswapV2KeeperFlashProxyETH/auction-already-settled");
+        (, uint amountToRaise,,,,,uint48 discountIncreaseDeadline,,) = auctionHouse.bids(auctionId);
+        require(discountIncreaseDeadline > 0, "GebUniswapV2KeeperFlashProxyETH/auction-never-started");
+        require(amountToRaise > 0, "GebUniswapV2KeeperFlashProxyETH/auction-already-settled");
 
-        bytes memory callbackData = abi.encodeWithSelector(this.bid.selector, auctionId, amount);
+        bytes memory callbackData = abi.encodeWithSelector(this.bid.selector, auctionId, amountToRaise);
 
-        _startSwap(wad(amount) + 1, callbackData);
+        _startSwap(wad(amountToRaise) + 1, callbackData);
     }
     /// @notice Settle auctions
     /// @param auctionIds IDs of the auctions to be settled

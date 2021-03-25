@@ -158,7 +158,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         emit log_named_uint("Profit", address(this).balance - previousBalance);
         assertTrue(previousBalance < address(this).balance); // profit!
 
-        (,,, uint amountToRaise,,,) = ethFixedDiscountCollateralAuctionHouse.bids(auction);
+        (, uint amountToRaise,,,,,,,) = ethIncreasingDiscountCollateralAuctionHouse.bids(auction);
         assertEq(amountToRaise, 0);
     }
 
@@ -176,7 +176,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         emit log_named_uint("Profit", address(this).balance - previousBalance);
         assertTrue(previousBalance < address(this).balance); // profit!
 
-        (,,, uint amountToRaise,,,) = ethFixedDiscountCollateralAuctionHouse.bids(auction);
+        (, uint amountToRaise,,,,,,,) = ethIncreasingDiscountCollateralAuctionHouse.bids(auction);
         assertEq(amountToRaise, 0);
     }
 
@@ -188,7 +188,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         emit log_named_uint("Profit", col.balanceOf(address(this)) - previousBalance);
         assertTrue(previousBalance < col.balanceOf(address(this))); // profit!
 
-        (,,, uint amountToRaise,,,) = colFixedDiscountCollateralAuctionHouse.bids(auction);
+        (, uint amountToRaise,,,,,,,) = colIncreasingDiscountCollateralAuctionHouse.bids(auction);
         assertEq(amountToRaise, 0);
     }
 
@@ -202,7 +202,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         emit log_named_uint("Profit", col.balanceOf(address(this)) - previousBalance);
         assertTrue(previousBalance < col.balanceOf(address(this))); // profit!
 
-        (,,, uint amountToRaise,,,) = colFixedDiscountCollateralAuctionHouse.bids(auction);
+        (, uint amountToRaise,,,,,,,) = colIncreasingDiscountCollateralAuctionHouse.bids(auction);
         assertEq(amountToRaise, 0);
     }
 }

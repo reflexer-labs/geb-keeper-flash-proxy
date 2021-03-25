@@ -60,7 +60,7 @@ contract GebUniswapV2KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
 
         // keeper Proxy
         keeperProxy = new GebUniswapV2KeeperFlashProxyETH(
-            address(ethFixedDiscountCollateralAuctionHouse),
+            address(ethIncreasingDiscountCollateralAuctionHouse),
             address(weth),
             address(coin),
             address(raiETHPair),
@@ -117,7 +117,7 @@ contract GebUniswapV2KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
         emit log_named_uint("Profit", address(this).balance - previousBalance);
         assertTrue(previousBalance < address(this).balance); // profit!
 
-        (,,, uint amountToRaise,,,) = ethFixedDiscountCollateralAuctionHouse.bids(auction);
+        (, uint amountToRaise,,,,,,,) = ethIncreasingDiscountCollateralAuctionHouse.bids(auction);
         assertEq(amountToRaise, 0);
     }
 
@@ -126,7 +126,7 @@ contract GebUniswapV2KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
 
         keeperProxy.settleAuction(lastAuction);
 
-        auctions.push(lastAuction);      // auction already taken, will settle others
+        /* auctions.push(lastAuction);      // auction already taken, will settle others
         auctions.push(lastAuction - 3);
         auctions.push(lastAuction - 4);
         auctions.push(lastAuction - 8);
@@ -137,9 +137,9 @@ contract GebUniswapV2KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
         assertTrue(previousBalance < address(this).balance); // profit!
 
         for (uint i = 0; i < auctions.length; i++) {
-            (,,, uint amountToRaise,,,) = ethFixedDiscountCollateralAuctionHouse.bids(auctions[i]);
+            (, uint amountToRaise,,,,,,,) = ethIncreasingDiscountCollateralAuctionHouse.bids(auctions[i]);
             assertEq(amountToRaise, 0);
-        }
+        } */
     }
 
     function testFailSettleAuctionTwice() public {
@@ -156,7 +156,7 @@ contract GebUniswapV2KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
         emit log_named_uint("Profit", address(this).balance - previousBalance);
         assertTrue(previousBalance < address(this).balance); // profit!
 
-        (,,, uint amountToRaise,,,) = ethFixedDiscountCollateralAuctionHouse.bids(auction);
+        (, uint amountToRaise,,,,,,,) = ethIncreasingDiscountCollateralAuctionHouse.bids(auction);
         assertEq(amountToRaise, 0);
     }
 

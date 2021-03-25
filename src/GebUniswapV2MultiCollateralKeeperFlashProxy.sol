@@ -4,7 +4,7 @@ import "./uni/interfaces/IUniswapV2Pair.sol";
 import "./uni/interfaces/IUniswapV2Factory.sol";
 
 abstract contract AuctionHouseLike {
-    function bids(uint) external view virtual returns (uint, uint, uint, uint, uint48, address, address);
+    function bids(uint) external view virtual returns (uint, uint, uint, uint, uint, uint, uint48, address, address);
     function buyCollateral(uint256 id, uint256 wad) external virtual;
     function liquidationEngine() view public virtual returns (LiquidationEngineLike);
     function collateralType() view public virtual returns (bytes32);
@@ -180,22 +180,20 @@ contract GebUniswapV2MultiCollateralKeeperFlashProxy {
     /// @param auctionId ID of the auction to be settled
     function settleAuction(CollateralJoinLike collateralJoin, uint auctionId) public {
         (AuctionHouseLike auctionHouse,,) = liquidationEngine.collateralTypes(collateralJoin.collateralType());
-        (uint raisedAmount,,, uint amountToRaise, uint48 auctionDeadline,,) = auctionHouse.bids(auctionId);
-        require(auctionDeadline > now, "GebUniswapV2MultiCollateralKeeperFlashProxy/auction-expired");
-        uint amount = subtract(amountToRaise, raisedAmount);
-        require(amount > 0, "GebUniswapV2MultiCollateralKeeperFlashProxy/auction-already-settled");
+        (, uint amountToRaise,,,,,,,) = auctionHouse.bids(auctionId);
+        require(amountToRaise > 0, "GebUniswapV2MultiCollateralKeeperFlashProxy/auction-already-settled");
 
         bytes memory callbackData = abi.encode(
             msg.sender,
             address(collateralJoin),
             address(auctionHouse),
             auctionId,
-            amount);   // rad
+            amountToRaise);   // rad
 
         uniswapPair = IUniswapV2Pair(uniswapFactory.getPair(address(collateralJoin.collateral()), address(coin)));
 
         safeEngine.approveSAFEModification(address(auctionHouse));
-        _startSwap(wad(amount) + 1, callbackData);
+        _startSwap(wad(amountToRaise) + 1, callbackData);
         safeEngine.denySAFEModification(address(auctionHouse));
     }
 
