@@ -1,6 +1,6 @@
 pragma solidity ^0.6.7;
 
-import "./uni/v2/interfaces/IUniswapV2Pair.sol";
+import "./uni/v3/interfaces/IUniswapV3Pool.sol";
 
 abstract contract AuctionHouseLike {
     function bids(uint) external view virtual returns (uint, uint, uint, uint, uint48, address, address);
@@ -68,7 +68,7 @@ abstract contract LiquidationEngineLike {
 
 /// @title GEB Keeper Flash Proxy
 /// @notice Trustless proxy to allow for bidding in auctions and liquidating Safes using FlashSwaps
-contract GebKeeperFlashProxy {
+contract GebKeeperFlashProxyV3 {
     AuctionHouseLike        auctionHouse;
     SAFEEngineLike          safeEngine;
     ManagerLike             manager;
@@ -76,7 +76,7 @@ contract GebKeeperFlashProxy {
     CollateralLike          coin;
     CoinJoinLike            coinJoin;
     CoinJoinLike            ethJoin;
-    IUniswapV2Pair          uniswapPair;
+    IUniswapV3Pool          uniswapPair;
     LiquidationEngineLike   liquidationEngine;
     address payable         caller;
     bytes32 public          collateralType;
@@ -114,7 +114,7 @@ contract GebKeeperFlashProxy {
         auctionHouse        = AuctionHouseLike(auctionHouseAddress);
         weth                = CollateralLike(wethAddress);
         coin                = CollateralLike(systemCoinAddress);
-        uniswapPair         = IUniswapV2Pair(uniswapPairAddress);
+        uniswapPair         = IUniswapV3Pool(uniswapPairAddress);
         coinJoin            = CoinJoinLike(coinJoinAddress);
         ethJoin             = CoinJoinLike(ethJoinAddress);
         manager             = ManagerLike(safeManagerAddress);
@@ -145,11 +145,12 @@ contract GebKeeperFlashProxy {
     /// @param data callback date, it will call this contract with the data
     function _startSwap(uint amount, bytes memory data) internal {
         caller = msg.sender;
+        (uint160 currentPrice, , , , , , ) = uniswapPair.slot0();
+        uint160 sqrtLimitPrice = currentPrice + 1 ether ;
 
-        uint amount0Out = address(coin) == uniswapPair.token0() ? amount : 0;
-        uint amount1Out = address(coin) == uniswapPair.token1() ? amount : 0;
+        bool zeroForOne = address(coin) == uniswapPair.token1() ? true : false;
 
-        uniswapPair.swap(amount0Out, amount1Out, address(this), data);
+        uniswapPair.swap(address(this), zeroForOne, int256(amount) * -1, sqrtLimitPrice, data); // slippage price not set, will revert if nor profitable
     }
 
     /// @notice Settle auction
@@ -209,17 +210,20 @@ contract GebKeeperFlashProxy {
         return(ids, bidAmounts, totalAmount);
     }
 
-    /// @notice callback from Uniswap, funds in hands
-    /// @param _sender sender of the flashswap, should be address (this)
-    /// @param _amount0 amount of token0
-    /// @param _amount1 amount of token1
-    /// @param _data data sent back from uniswap
-    function uniswapV2Call(address _sender, uint _amount0, uint _amount1, bytes calldata _data) external {
-        require(_sender == address(this), "invalid sender");
+    /// @notice Called to `msg.sender` after executing a swap via IUniswapV3Pool#swap.
+    /// @dev In the implementation you must pay the pool tokens owed for the swap.
+    /// The caller of this method must be checked to be a UniswapV3Pool deployed by the canonical UniswapV3Factory.
+    /// amount0Delta and amount1Delta can both be 0 if no tokens were swapped.
+    /// @param _amount0 The amount of token0 that was sent (negative) or must be received (positive) by the pool by
+    /// the end of the swap. If positive, the callback must send that amount of token0 to the pool.
+    /// @param _amount1 The amount of token1 that was sent (negative) or must be received (positive) by the pool by
+    /// the end of the swap. If positive, the callback must send that amount of token1 to the pool.
+    /// @param _data Any data passed through by the caller via the IUniswapV3PoolActions#swap call
+    function uniswapV3SwapCallback(int256 _amount0, int256 _amount1, bytes calldata _data) external {
         require(msg.sender == address(uniswapPair), "invalid uniswap pair");
 
         // join COIN
-        uint amount = (_amount0 == 0 ? _amount1 : _amount0);
+        uint amount = coin.balanceOf(address(this));
         coin.approve(address(coinJoin), amount);
         coinJoin.join(address(this), amount);
 
@@ -231,12 +235,10 @@ contract GebKeeperFlashProxy {
         ethJoin.exit(address(this), safeEngine.tokenCollateral(collateralType, address(this)));
 
         // repay loan
-        uint pairBalanceTokenBorrow = coin.balanceOf(address(uniswapPair));
-        uint pairBalanceTokenPay = weth.balanceOf(address(uniswapPair));
-        uint amountToRepay = ((1000 * pairBalanceTokenPay * amount) / (997 * pairBalanceTokenBorrow)) + 1;
+        uint amountToRepay = (_amount0 > 0) ? uint(_amount0) : uint(_amount1);
         weth.transfer(address(uniswapPair), amountToRepay);
 
-        // // send profit back
+        // send profit back
         uint profit = weth.balanceOf(address(this));
         weth.withdraw(profit);
         caller.call{value: profit}("");
