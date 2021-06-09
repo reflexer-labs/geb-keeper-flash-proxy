@@ -1,4 +1,4 @@
 all    :; dapp build
 clean  :; dapp clean
 test   :; dapp test
-deploy :; dapp create GebKeeperFlashProxy
+deploy :; dapp create GebUniswapV2KeeperFlashProxyETH
