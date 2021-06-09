@@ -13,25 +13,25 @@ import {GetSafes} from "geb-safe-manager/GetSafes.sol";
 import {GebProxyActions} from "geb-proxy-actions/GebProxyActions.sol";
 import {GebProxyIncentivesActions} from "geb-proxy-actions/GebProxyIncentivesActions.sol";
 import {GebProxyRegistry, DSProxyFactory, DSProxy} from "geb-proxy-registry/GebProxyRegistry.sol";
+import {LiquidityAmounts} from "../uni/v3/libraries/LiquidityAmounts.sol";
 
-import "../uni/v2/UniswapV2Factory.sol";
-import "../uni/v2/UniswapV2Pair.sol";
-import "../uni/v2/UniswapV2Router02.sol";
+import "../uni/v3/UniswapV3Factory.sol";
+import "../uni/v3/UniswapV3Pool.sol";
 
-import "../GebUniswapV2MultiCollateralKeeperFlashProxy.sol";
+import "../GebUniswapV3MultiCollateralKeeperFlashProxy.sol";
 
 contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActions {
     GebSafeManager manager;
-    GebUniswapV2MultiCollateralKeeperFlashProxy keeperProxy;
+    GebUniswapV3MultiCollateralKeeperFlashProxy keeperProxy;
 
     DSProxy proxy;
     address gebProxyActions;
     GebProxyRegistry registry;
 
-    UniswapV2Factory uniswapFactory;
-    UniswapV2Router02 uniswapRouter;
-    UniswapV2Pair raiETHPair;
-    UniswapV2Pair raiCOLPair;
+    UniswapV3Factory uniswapFactory;
+    // UniswapV3Router02 uniswapRouter;
+    UniswapV3Pool raiETHPair;
+    UniswapV3Pool raiCOLPair;
 
     uint256 initETHRAIPairLiquidity = 5 ether;               // 1250 USD
     uint256 initRAIETHPairLiquidity = 294.672324375E18;      // 1 RAI = 4.242 USD
@@ -55,39 +55,29 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         manager = new GebSafeManager(address(safeEngine));
 
         // Setup Uniswap
-        uniswapFactory = new UniswapV2Factory(address(this));
-        raiETHPair = UniswapV2Pair(uniswapFactory.createPair(address(weth), address(coin)));
-        raiCOLPair = UniswapV2Pair(uniswapFactory.createPair(address(col), address(coin)));
-        uniswapRouter = new UniswapV2Router02(address(uniswapFactory), address(weth));
+        uniswapFactory = new UniswapV3Factory();
+        raiETHPair = UniswapV3Pool(uniswapFactory.createPool(address(weth), address(coin), 3000));
+        raiETHPair.initialize(5 * 10**17);
+
+        raiCOLPair = UniswapV3Pool(uniswapFactory.createPool(address(col), address(coin), 3000));
+        raiCOLPair.initialize(5 * 10**17);
 
         // Add pair liquidity ETH
-        weth.approve(address(uniswapRouter), uint(-1));
-        weth.deposit{value: initETHRAIPairLiquidity}();
-        coin.approve(address(uniswapRouter), uint(-1));
         uint safe = this.openSAFE(address(manager), "ETH", address(this));
         _lockETH(address(manager), address(ethJoin), safe, 2000 ether);
         _generateDebt(address(manager), address(taxCollector), address(coinJoin), safe, 100000 ether, address(this));
-        uniswapRouter.addLiquidity(address(weth), address(coin), initETHRAIPairLiquidity, 100000 ether, 1000 ether, initRAIETHPairLiquidity, address(this), now);
+        _addWhaleLiquidity(address(weth));
 
         // Add pair liquidity COL
-        weth.approve(address(uniswapRouter), uint(-1));
-        weth.deposit{value: initETHRAIPairLiquidity}();
-        coin.approve(address(uniswapRouter), uint(-1));
-        safe = this.openSAFE(address(manager), "ETH", address(this));
-        _lockETH(address(manager), address(ethJoin), safe, 2000 ether);
-        _generateDebt(address(manager), address(taxCollector), address(coinJoin), safe, 100000 ether, address(this));
-
-        col.mint(100000 ether);
-        col.approve(address(uniswapRouter), uint(-1));
-        uniswapRouter.addLiquidity(address(col), address(coin), initETHRAIPairLiquidity, 100000 ether, 1000 ether, initRAIETHPairLiquidity, address(this), now);
+        _addWhaleLiquidity(address(col));
 
         // zeroing balances
         coin.transfer(address(1), coin.balanceOf(address(this)));
-        raiETHPair.transfer(address(0), raiETHPair.balanceOf(address(this)));
-        raiCOLPair.transfer(address(0), raiCOLPair.balanceOf(address(this)));
+        weth.transfer(address(1), weth.balanceOf(address(this)));
+        col.transfer(address(1), weth.balanceOf(address(this)));
 
         // keeper Proxy
-        keeperProxy = new GebUniswapV2MultiCollateralKeeperFlashProxy(
+        keeperProxy = new GebUniswapV3MultiCollateralKeeperFlashProxy(
             address(weth),
             address(coin),
             address(uniswapFactory),
@@ -149,6 +139,49 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         orclCOL.updateResult(uint(40 * 10 ** 18)); // Force liquidation
         oracleRelayer.updateCollateralPrice("COL");
     }
+
+    function _addWhaleLiquidity(address token) internal {
+        uint256 token0Am = initRAIETHPairLiquidity;
+        uint256 token1Am = initETHRAIPairLiquidity;
+        int24 low = -887220;
+        int24 upp = 887220;
+        (uint160 sqrtRatioX96, , , , , , ) = raiETHPair.slot0();
+        uint128 liq = _getLiquidityAmountsForTicks(sqrtRatioX96, low, upp, token0Am, token1Am);
+
+        UniswapV3Pool pool = UniswapV3Pool(uniswapFactory.getPool(token, address(coin), 3000));
+        pool.mint(address(this), low, upp, 1000000000, bytes(""));
+    }
+
+    function uniswapV3MintCallback(
+        uint256 amount0Owed,
+        uint256 amount1Owed,
+        bytes calldata data
+    ) external {
+        if (msg.sender == address(raiETHPair)) {
+            weth.deposit{value: amount1Owed}();
+            weth.transfer(msg.sender, amount1Owed);
+        } else if (msg.sender == address(raiCOLPair)) {
+            col.mint(msg.sender, amount1Owed);
+        }
+        coin.transfer(address(msg.sender), amount0Owed);
+    }
+
+    function _getLiquidityAmountsForTicks(
+        uint160 sqrtRatioX96,
+        int24 _lowerTick,
+        int24 upperTick,
+        uint256 t0am,
+        uint256 t1am
+    ) public returns (uint128 liquidity) {
+        liquidity = LiquidityAmounts.getLiquidityForAmounts(
+            sqrtRatioX96,
+            TickMath.getSqrtRatioAtTick(_lowerTick),
+            TickMath.getSqrtRatioAtTick(upperTick),
+            t0am,
+            t1am
+        );
+    }
+
 
     // --- Tests ---
     function testSettleETHAuction() public {
