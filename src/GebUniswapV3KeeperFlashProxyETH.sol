@@ -65,8 +65,10 @@ contract GebUniswapV3KeeperFlashProxyETH {
     address payable        public caller;
     bytes32                public collateralType;
 
-    uint256 public constant ZERO           = 0;
-    uint256 public constant ONE            = 1;
+    uint256 public   constant ZERO           = 0;
+    uint256 public   constant ONE            = 1;
+    uint160 internal constant MIN_SQRT_RATIO = 4295128739;
+    uint160 internal constant MAX_SQRT_RATIO = 1461446703485210103287273052203988822378723970342;
 
     /// @notice Constructor
     /// @param auctionHouseAddress Address of the auction house
@@ -176,9 +178,9 @@ contract GebUniswapV3KeeperFlashProxyETH {
     function _startSwap(uint amount, bytes memory data) internal {
         caller = msg.sender;
         (uint160 currentPrice, , , , , , ) = uniswapPair.slot0();
-        uint160 sqrtLimitPrice = currentPrice + 1 ether ;
 
         bool zeroForOne = address(coin) == uniswapPair.token1() ? true : false;
+        uint160 sqrtLimitPrice = zeroForOne ? MIN_SQRT_RATIO + 1 : MAX_SQRT_RATIO - 1;
 
         uniswapPair.swap(address(this), zeroForOne, int256(amount) * -1, sqrtLimitPrice, data);
     }
@@ -187,7 +189,7 @@ contract GebUniswapV3KeeperFlashProxyETH {
     /// @return ids IDs of active auctions
     /// @return bidAmounts Rad amounts still requested by auctions
     /// @return totalAmount Wad amount to be borrowed
-    function getOpenAuctionsBidSizes(uint[] memory auctionIds) internal returns (uint[] memory, uint[] memory, uint) {
+    function _getOpenAuctionsBidSizes(uint[] memory auctionIds) internal returns (uint[] memory, uint[] memory, uint) {
         uint            amountToRaise;
         uint            totalAmount;
         uint            opportunityCount;
@@ -241,7 +243,7 @@ contract GebUniswapV3KeeperFlashProxyETH {
     /// @notice Settle auctions
     /// @param auctionIds IDs of the auctions to be settled
     function settleAuction(uint[] memory auctionIds) public {
-        (uint[] memory ids, uint[] memory bidAmounts, uint totalAmount) = getOpenAuctionsBidSizes(auctionIds);
+        (uint[] memory ids, uint[] memory bidAmounts, uint totalAmount) = _getOpenAuctionsBidSizes(auctionIds);
         require(totalAmount > ZERO, "GebUniswapV2KeeperFlashProxyETH/all-auctions-already-settled");
 
         bytes memory callbackData = abi.encodeWithSelector(this.multipleBid.selector, ids, bidAmounts);

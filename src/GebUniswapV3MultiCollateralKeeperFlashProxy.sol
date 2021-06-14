@@ -1,7 +1,6 @@
 pragma solidity 0.6.7;
 
 import "./uni/v3/interfaces/IUniswapV3Pool.sol";
-import "./uni/v3/interfaces/IUniswapV3Factory.sol";
 
 abstract contract AuctionHouseLike {
     function bids(uint256) virtual external view returns (uint, uint);
@@ -65,35 +64,32 @@ contract GebUniswapV3MultiCollateralKeeperFlashProxy {
     CollateralLike          public coin;
     CoinJoinLike            public coinJoin;
     IUniswapV3Pool          public uniswapPair;
-    IUniswapV3Factory       public uniswapFactory;
     LiquidationEngineLike   public liquidationEngine;
     bytes32                 public collateralType;
 
-    uint256 public constant ZERO           = 0;
-    uint256 public constant ONE            = 1;
+    uint256 public   constant ZERO           = 0;
+    uint256 public   constant ONE            = 1;
+    uint160 internal constant MIN_SQRT_RATIO = 4295128739;
+    uint160 internal constant MAX_SQRT_RATIO = 1461446703485210103287273052203988822378723970342;
 
     /// @notice Constructor
     /// @param wethAddress WETH address
     /// @param systemCoinAddress System coin address
-    /// @param uniswapFactoryAddress Uniswap V2 factory address
     /// @param coinJoinAddress CoinJoin address
     /// @param liquidationEngineAddress Liquidation engine address
     constructor(
         address wethAddress,
         address systemCoinAddress,
-        address uniswapFactoryAddress,
         address coinJoinAddress,
         address liquidationEngineAddress
     ) public {
         require(wethAddress != address(0), "GebUniswapV2MultiCollateralKeeperFlashProxy/null-weth");
         require(systemCoinAddress != address(0), "GebUniswapV2MultiCollateralKeeperFlashProxy/null-system-coin");
-        require(uniswapFactoryAddress != address(0), "GebUniswapV2MultiCollateralKeeperFlashProxy/null-uniswap-factory");
         require(coinJoinAddress != address(0), "GebUniswapV2MultiCollateralKeeperFlashProxy/null-coin-join");
         require(liquidationEngineAddress != address(0), "GebUniswapV2MultiCollateralKeeperFlashProxy/null-liquidation-engine");
 
         weth               = CollateralLike(wethAddress);
         coin               = CollateralLike(systemCoinAddress);
-        uniswapFactory     = IUniswapV3Factory(uniswapFactoryAddress);
         coinJoin           = CoinJoinLike(coinJoinAddress);
         liquidationEngine  = LiquidationEngineLike(liquidationEngineAddress);
         safeEngine         = liquidationEngine.safeEngine();
@@ -118,10 +114,8 @@ contract GebUniswapV3MultiCollateralKeeperFlashProxy {
     /// @param amount Amount to borrow
     /// @param data Callback data
     function _startSwap(uint amount, bytes memory data) internal {
-        (uint160 currentPrice, , , , , , ) = uniswapPair.slot0();
-        uint160 sqrtLimitPrice = currentPrice + 1 ether ;
-
         bool zeroForOne = address(coin) == uniswapPair.token1() ? true : false;
+        uint160 sqrtLimitPrice = zeroForOne ? MIN_SQRT_RATIO + 1 : MAX_SQRT_RATIO - 1;
 
         uniswapPair.swap(address(this), zeroForOne, int256(amount) * -1, sqrtLimitPrice, data);
     }
@@ -143,9 +137,8 @@ contract GebUniswapV3MultiCollateralKeeperFlashProxy {
             _data, (address, CollateralJoinLike, AuctionHouseLike, uint, uint)
         );
 
-        uint wadAmount = addition(wad(amount), ONE);
-
         // join COIN
+        uint wadAmount = addition(wad(amount), ONE);
         coin.approve(address(coinJoin), wadAmount);
         coinJoin.join(address(this), wadAmount);
 
@@ -157,7 +150,6 @@ contract GebUniswapV3MultiCollateralKeeperFlashProxy {
 
         // repay loan
         uint amountToRepay = _amount0 > int(ZERO) ? uint(_amount0) : uint(_amount1);
-
         require(amountToRepay <= collateralJoin.collateral().balanceOf(address(this)), "GebUniswapV2MultiCollateralKeeperFlashProxy/unprofitable");
         collateralJoin.collateral().transfer(address(uniswapPair), amountToRepay);
 
@@ -178,8 +170,9 @@ contract GebUniswapV3MultiCollateralKeeperFlashProxy {
     /// @dev It will revert for protected safes (those that have saviours), these need to be liquidated through the LiquidationEngine
     /// @param collateralJoin Join address for a collateral type
     /// @param safe A SAFE's ID
+    /// @param uniswapPoolAddress Uniswap pool address
     /// @return auction Auction ID
-    function liquidateAndSettleSAFE(CollateralJoinLike collateralJoin, address safe) public returns (uint auction) {
+    function liquidateAndSettleSAFE(CollateralJoinLike collateralJoin, address safe, address uniswapPoolAddress) public returns (uint auction) {
         collateralType = collateralJoin.collateralType();
         if (liquidationEngine.safeSaviours(liquidationEngine.chosenSAFESaviour(collateralType, safe)) == ONE) {
             require (liquidationEngine.chosenSAFESaviour(collateralType, safe) == address(0),
@@ -187,13 +180,14 @@ contract GebUniswapV3MultiCollateralKeeperFlashProxy {
         }
 
         auction = liquidationEngine.liquidateSAFE(collateralType, safe);
-        settleAuction(collateralJoin, auction);
+        settleAuction(collateralJoin, auction, uniswapPoolAddress);
     }
 
     /// @notice Settle an auction
     /// @param collateralJoin Join address for a collateral type
     /// @param auctionId ID of the auction to be settled
-    function settleAuction(CollateralJoinLike collateralJoin, uint auctionId) public {
+    /// @param uniswapPoolAddress Uniswap pool address
+    function settleAuction(CollateralJoinLike collateralJoin, uint auctionId, address uniswapPoolAddress) public {
         (AuctionHouseLike auctionHouse,,) = liquidationEngine.collateralTypes(collateralJoin.collateralType());
         (, uint amountToRaise) = auctionHouse.bids(auctionId);
         require(amountToRaise > ZERO, "GebUniswapV2MultiCollateralKeeperFlashProxy/auction-already-settled");
@@ -205,7 +199,7 @@ contract GebUniswapV3MultiCollateralKeeperFlashProxy {
             auctionId,
             amountToRaise);   // rad
 
-        uniswapPair = IUniswapV3Pool(uniswapFactory.getPool(address(collateralJoin.collateral()), address(coin), 3000));
+        uniswapPair = IUniswapV3Pool(uniswapPoolAddress);
 
         safeEngine.approveSAFEModification(address(auctionHouse));
         _startSwap(addition(wad(amountToRaise), ONE), callbackData);

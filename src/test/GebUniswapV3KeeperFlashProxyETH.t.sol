@@ -25,8 +25,8 @@ contract GebUniswapV3KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
     address payable token1;
 
     UniswapV3Pool raiETHPair;
-    uint256 initETHRAIPairLiquidity = 5000 ether;               // 1250 USD
-    uint256 initRAIETHPairLiquidity = 294000.672324375E18;      // 1 RAI = 4.242 USD
+    uint256 initETHRAIPairLiquidity = 5000 ether;            // 1250 USD
+    uint256 initRAIETHPairLiquidity = 294672.324375E18;      // 1 RAI = 4.242 USD
 
     bytes32 collateralAuctionType = bytes32("FIXED_DISCOUNT");
 
@@ -39,14 +39,16 @@ contract GebUniswapV3KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
         manager = new GebSafeManager(address(safeEngine));
 
         // Setup Uniswap
-        (token0, token1) = address(coin) < address(weth) ? (payable(address(coin)), address(weth)) : (address(weth), payable(address(coin)));
-        raiETHPair = UniswapV3Pool(_deployV3Pool(token0, token1, 3000));
-        raiETHPair.initialize(5 * 10**17);
+        uint160 priceCoinToken0 = 103203672169272457649230733;
+        uint160 priceCoinToken1 = 6082246497092770728082823737800;
+
+        raiETHPair = UniswapV3Pool(_deployV3Pool(address(coin), address(weth), 3000));
+        raiETHPair.initialize(address(coin) == raiETHPair.token0() ? priceCoinToken0 : priceCoinToken1);
 
         // Add pair liquidity
         uint safe = this.openSAFE(address(manager), "ETH", address(this));
-        _lockETH(address(manager), address(ethJoin), safe, 2000 ether);
-        _generateDebt(address(manager), address(taxCollector), address(coinJoin), safe, 100000 ether, address(this));
+        _lockETH(address(manager), address(ethJoin), safe, 5000 ether);
+        _generateDebt(address(manager), address(taxCollector), address(coinJoin), safe, 1000000 ether, address(this));
         _addWhaleLiquidity();
 
         // zeroing balances
@@ -75,13 +77,15 @@ contract GebUniswapV3KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
     }
 
     function _addWhaleLiquidity() internal {
-        uint256 token0Am = initRAIETHPairLiquidity;
-        uint256 token1Am = initETHRAIPairLiquidity;
         int24 low = -887220;
         int24 upp = 887220;
         (uint160 sqrtRatioX96, , , , , , ) = raiETHPair.slot0();
-        uint128 liq = _getLiquidityAmountsForTicks(sqrtRatioX96, low, upp, token0Am, token1Am);
-        raiETHPair.mint(address(this), low, upp, 1000000000, bytes(""));
+        uint128 liq;
+        if (address(coin) == raiETHPair.token0())
+            liq = _getLiquidityAmountsForTicks(sqrtRatioX96, low, upp, initRAIETHPairLiquidity, initETHRAIPairLiquidity);
+        else
+            liq = _getLiquidityAmountsForTicks(sqrtRatioX96, low, upp, initETHRAIPairLiquidity, initRAIETHPairLiquidity);
+        raiETHPair.mint(address(this), low, upp, liq, bytes(""));
     }
 
     function uniswapV3MintCallback(
@@ -89,9 +93,12 @@ contract GebUniswapV3KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
         uint256 amount1Owed,
         bytes calldata data
     ) external {
-        weth.deposit{value: amount1Owed}();
-        weth.transfer(msg.sender, amount1Owed);
-        coin.transfer(address(msg.sender), amount0Owed);
+        uint coinAmount = address(coin) == raiETHPair.token0() ? amount0Owed : amount1Owed;
+        uint collateralAmount = address(coin) == raiETHPair.token0() ? amount1Owed : amount0Owed;
+
+        weth.deposit{value: collateralAmount}();
+        weth.transfer(msg.sender, collateralAmount);
+        coin.transfer(address(msg.sender), coinAmount);
     }
 
     function _getLiquidityAmountsForTicks(

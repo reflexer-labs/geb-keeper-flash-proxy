@@ -33,8 +33,8 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
     UniswapV3Pool raiETHPair;
     UniswapV3Pool raiCOLPair;
 
-    uint256 initETHRAIPairLiquidity = 5 ether;               // 1250 USD
-    uint256 initRAIETHPairLiquidity = 294.672324375E18;      // 1 RAI = 4.242 USD
+    uint256 initETHRAIPairLiquidity = 5000 ether;         // 1250 USD
+    uint256 initRAIETHPairLiquidity = 294672.324375E18;   // 1 RAI = 4.242 USD
 
     uint[] safes;
 
@@ -45,29 +45,30 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         deployIndexWithCreatorPermissions(collateralAuctionType);
         safeEngine.modifyParameters("ETH", "debtCeiling", uint(0) - 1); // unlimited debt ceiling, enough liquidity is needed on Uniswap.
         safeEngine.modifyParameters("COL", "debtCeiling", uint(0) - 1); // unlimited debt ceiling, enough liquidity is needed on Uniswap.
-        safeEngine.modifyParameters("globalDebtCeiling", uint(0) - 1); // unlimited globalDebtCeiling
+        safeEngine.modifyParameters("globalDebtCeiling", uint(0) - 1);  // unlimited globalDebtCeiling
 
         DSProxyFactory factory = new DSProxyFactory();
         registry = new GebProxyRegistry(address(factory));
         gebProxyActions = address(new GebProxyActions());
         proxy = DSProxy(registry.build());
-
         manager = new GebSafeManager(address(safeEngine));
 
         // Setup Uniswap
+        uint160 priceCoinToken0 = 103203672169272457649230733;
+        uint160 priceCoinToken1 = 6082246497092770728082823737800;
+
         uniswapFactory = new UniswapV3Factory();
         raiETHPair = UniswapV3Pool(uniswapFactory.createPool(address(weth), address(coin), 3000));
-        raiETHPair.initialize(5 * 10**17);
+        raiETHPair.initialize(address(coin) == raiETHPair.token0() ? priceCoinToken0 : priceCoinToken1);
 
         raiCOLPair = UniswapV3Pool(uniswapFactory.createPool(address(col), address(coin), 3000));
-        raiCOLPair.initialize(5 * 10**17);
+        raiCOLPair.initialize(address(coin) == raiCOLPair.token0() ? priceCoinToken0 : priceCoinToken1);
 
         // Add pair liquidity ETH
         uint safe = this.openSAFE(address(manager), "ETH", address(this));
-        _lockETH(address(manager), address(ethJoin), safe, 2000 ether);
-        _generateDebt(address(manager), address(taxCollector), address(coinJoin), safe, 100000 ether, address(this));
+        _lockETH(address(manager), address(ethJoin), safe, 5000 ether);
+        _generateDebt(address(manager), address(taxCollector), address(coinJoin), safe, 1000000 ether, address(this));
         _addWhaleLiquidity(address(weth));
-
         // Add pair liquidity COL
         _addWhaleLiquidity(address(col));
 
@@ -80,7 +81,6 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         keeperProxy = new GebUniswapV3MultiCollateralKeeperFlashProxy(
             address(weth),
             address(coin),
-            address(uniswapFactory),
             address(coinJoin),
             address(liquidationEngine)
         );
@@ -141,15 +141,17 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
     }
 
     function _addWhaleLiquidity(address token) internal {
-        uint256 token0Am = initRAIETHPairLiquidity;
-        uint256 token1Am = initETHRAIPairLiquidity;
+        UniswapV3Pool pool = UniswapV3Pool(uniswapFactory.getPool(token, address(coin), 3000));
         int24 low = -887220;
         int24 upp = 887220;
-        (uint160 sqrtRatioX96, , , , , , ) = raiETHPair.slot0();
-        uint128 liq = _getLiquidityAmountsForTicks(sqrtRatioX96, low, upp, token0Am, token1Am);
+        (uint160 sqrtRatioX96, , , , , , ) = pool.slot0();
+        uint128 liq;
+        if (address(coin) == pool.token0())
+            liq = _getLiquidityAmountsForTicks(sqrtRatioX96, low, upp, initRAIETHPairLiquidity, initETHRAIPairLiquidity);
+        else
+            liq = _getLiquidityAmountsForTicks(sqrtRatioX96, low, upp, initETHRAIPairLiquidity, initRAIETHPairLiquidity);
 
-        UniswapV3Pool pool = UniswapV3Pool(uniswapFactory.getPool(token, address(coin), 3000));
-        pool.mint(address(this), low, upp, 1000000000, bytes(""));
+        pool.mint(address(this), low, upp, liq, abi.encode(token));
     }
 
     function uniswapV3MintCallback(
@@ -157,13 +159,17 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         uint256 amount1Owed,
         bytes calldata data
     ) external {
+        UniswapV3Pool pool = UniswapV3Pool(msg.sender);
+        uint coinAmount = address(coin) == pool.token0() ? amount0Owed : amount1Owed;
+        uint collateralAmount = address(coin) == pool.token0() ? amount1Owed : amount0Owed;
+
         if (msg.sender == address(raiETHPair)) {
-            weth.deposit{value: amount1Owed}();
-            weth.transfer(msg.sender, amount1Owed);
+            weth.deposit{value: collateralAmount}();
+            weth.transfer(msg.sender, collateralAmount);
         } else if (msg.sender == address(raiCOLPair)) {
-            col.mint(msg.sender, amount1Owed);
+            col.mint(msg.sender, collateralAmount);
         }
-        coin.transfer(address(msg.sender), amount0Owed);
+        coin.transfer(address(msg.sender), coinAmount);
     }
 
     function _getLiquidityAmountsForTicks(
@@ -188,7 +194,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         uint auction = _collateralAuctionETH(1);
         uint previousBalance = address(this).balance;
 
-        keeperProxy.settleAuction(CollateralJoinLike(address(ethJoin)), auction);
+        keeperProxy.settleAuction(CollateralJoinLike(address(ethJoin)), auction, address(raiETHPair));
         emit log_named_uint("Profit", address(this).balance - previousBalance);
         assertTrue(previousBalance < address(this).balance); // profit!
 
@@ -198,15 +204,15 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
 
     function testFailSettleAuctionTwice() public {
         uint auction = _collateralAuctionETH(1);
-        keeperProxy.settleAuction(CollateralJoinLike(address(ethJoin)), auction);
-        keeperProxy.settleAuction(CollateralJoinLike(address(ethJoin)), auction);
+        keeperProxy.settleAuction(CollateralJoinLike(address(ethJoin)), auction, address(raiETHPair));
+        keeperProxy.settleAuction(CollateralJoinLike(address(ethJoin)), auction, address(raiETHPair));
     }
 
     function testLiquidateAndSettleETHSAFE() public {
         uint safe = _generateUnsafeSafes(1);
         uint previousBalance = address(this).balance;
 
-        uint auction = keeperProxy.liquidateAndSettleSAFE(CollateralJoinLike(address(ethJoin)), manager.safes(safe));
+        uint auction = keeperProxy.liquidateAndSettleSAFE(CollateralJoinLike(address(ethJoin)), manager.safes(safe), address(raiETHPair));
         emit log_named_uint("Profit", address(this).balance - previousBalance);
         assertTrue(previousBalance < address(this).balance); // profit!
 
@@ -218,7 +224,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         uint safe = _generateUnsafeCOLSafe();
         uint previousBalance = col.balanceOf(address(this));
 
-        uint auction = keeperProxy.liquidateAndSettleSAFE(CollateralJoinLike(address(colJoin)), manager.safes(safe));
+        uint auction = keeperProxy.liquidateAndSettleSAFE(CollateralJoinLike(address(colJoin)), manager.safes(safe), address(raiCOLPair));
         emit log_named_uint("Profit", col.balanceOf(address(this)) - previousBalance);
         assertTrue(previousBalance < col.balanceOf(address(this))); // profit!
 
@@ -232,7 +238,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
 
         uint previousBalance = col.balanceOf(address(this));
 
-        keeperProxy.settleAuction(CollateralJoinLike(address(colJoin)), auction);
+        keeperProxy.settleAuction(CollateralJoinLike(address(colJoin)), auction, address(raiCOLPair));
         emit log_named_uint("Profit", col.balanceOf(address(this)) - previousBalance);
         assertTrue(previousBalance < col.balanceOf(address(this))); // profit!
 
