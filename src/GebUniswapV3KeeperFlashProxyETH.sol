@@ -1,6 +1,6 @@
-pragma solidity 0.6.7;
+pragma solidity ^0.6.7;
 
-import "./uni/v2/interfaces/IUniswapV2Pair.sol";
+import "./uni/v3/interfaces/IUniswapV3Pool.sol";
 
 abstract contract AuctionHouseLike {
     function bids(uint256) virtual external view returns (uint, uint);
@@ -53,22 +53,22 @@ abstract contract LiquidationEngineLike {
 /// @title GEB Keeper Flash Proxy
 /// @notice Trustless proxy that facilitates SAFE liquidation and bidding in auctions using Uniswap V2 flashswaps
 /// @notice Single collateral version, only meant to work with ETH collateral types
-contract GebUniswapV2KeeperFlashProxyETH {
+contract GebUniswapV3KeeperFlashProxyETH {
     AuctionHouseLike       public auctionHouse;
     SAFEEngineLike         public safeEngine;
     CollateralLike         public weth;
     CollateralLike         public coin;
     CoinJoinLike           public coinJoin;
     CoinJoinLike           public ethJoin;
-    IUniswapV2Pair         public uniswapPair;
+    IUniswapV3Pool         public uniswapPair;
     LiquidationEngineLike  public liquidationEngine;
     address payable        public caller;
     bytes32                public collateralType;
 
-    uint256 public constant ZERO           = 0;
-    uint256 public constant ONE            = 1;
-    uint256 public constant THOUSAND       = 1000;
-    uint256 public constant NET_OUT_AMOUNT = 997;
+    uint256 public   constant ZERO           = 0;
+    uint256 public   constant ONE            = 1;
+    uint160 internal constant MIN_SQRT_RATIO = 4295128739;
+    uint160 internal constant MAX_SQRT_RATIO = 1461446703485210103287273052203988822378723970342;
 
     /// @notice Constructor
     /// @param auctionHouseAddress Address of the auction house
@@ -95,7 +95,7 @@ contract GebUniswapV2KeeperFlashProxyETH {
         auctionHouse        = AuctionHouseLike(auctionHouseAddress);
         weth                = CollateralLike(wethAddress);
         coin                = CollateralLike(systemCoinAddress);
-        uniswapPair         = IUniswapV2Pair(uniswapPairAddress);
+        uniswapPair         = IUniswapV3Pool(uniswapPairAddress);
         coinJoin            = CoinJoinLike(coinJoinAddress);
         ethJoin             = CoinJoinLike(ethJoinAddress);
         collateralType      = auctionHouse.collateralType();
@@ -136,36 +136,32 @@ contract GebUniswapV2KeeperFlashProxyETH {
             auctionHouse.buyCollateral(auctionIds[i], amounts[i]);
         }
     }
-    /// @notice Callback for/from Uniswap V2
-    /// @param _sender Requestor of the flashswap (must be this address)
-    /// @param _amount0 Amount of token0
-    /// @param _amount1 Amount of token1
-    /// @param _data Data sent back from Uniswap
-    function uniswapV2Call(address _sender, uint _amount0, uint _amount1, bytes calldata _data) external {
-        require(_sender == address(this), "GebUniswapV2KeeperFlashProxyETH/invalid-sender");
+    /// @notice Called to `msg.sender` after executing a swap via IUniswapV3Pool#swap.
+    /// @dev In the implementation you must pay the pool tokens owed for the swap.
+    /// The caller of this method must be checked to be a UniswapV3Pool deployed by the canonical UniswapV3Factory.
+    /// amount0Delta and amount1Delta can both be 0 if no tokens were swapped.
+    /// @param _amount0 The amount of token0 that was sent (negative) or must be received (positive) by the pool by
+    /// the end of the swap. If positive, the callback must send that amount of token0 to the pool.
+    /// @param _amount1 The amount of token1 that was sent (negative) or must be received (positive) by the pool by
+    /// the end of the swap. If positive, the callback must send that amount of token1 to the pool.
+    /// @param _data Any data passed through by the caller via the IUniswapV3PoolActions#swap call
+    function uniswapV3SwapCallback(int256 _amount0, int256 _amount1, bytes calldata _data) external {
         require(msg.sender == address(uniswapPair), "GebUniswapV2KeeperFlashProxyETH/invalid-uniswap-pair");
 
-        // join system coins
-        uint amount = (_amount0 == ZERO ? _amount1 : _amount0);
+        // join COIN
+        uint amount = coin.balanceOf(address(this));
         coin.approve(address(coinJoin), amount);
         coinJoin.join(address(this), amount);
 
         // bid
         (bool success, ) = address(this).call(_data);
-        require(success, "GebUniswapV2KeeperFlashProxyETH/failed-bidding");
+        require(success, "failed bidding");
 
         // exit WETH
         ethJoin.exit(address(this), safeEngine.tokenCollateral(collateralType, address(this)));
 
         // repay loan
-        uint pairBalanceTokenBorrow = coin.balanceOf(address(uniswapPair));
-        uint pairBalanceTokenPay = weth.balanceOf(address(uniswapPair));
-        uint amountToRepay = addition((
-          multiply(multiply(THOUSAND, pairBalanceTokenPay), amount) /
-          multiply(NET_OUT_AMOUNT, pairBalanceTokenBorrow)
-        ), ONE);
-
-        require(amountToRepay <= weth.balanceOf(address(this)), "GebUniswapV2KeeperFlashProxyETH/unprofitable");
+        uint amountToRepay = _amount0 > int(ZERO) ? uint(_amount0) : uint(_amount1);
         weth.transfer(address(uniswapPair), amountToRepay);
 
         // send profit back
@@ -178,21 +174,22 @@ contract GebUniswapV2KeeperFlashProxyETH {
     // --- Internal Utils ---
     /// @notice Initiates a flashwap
     /// @param amount Amount to borrow
-    /// @param data Callback data
+    /// @param data Callback date, it will call this contract with the data
     function _startSwap(uint amount, bytes memory data) internal {
         caller = msg.sender;
+        (uint160 currentPrice, , , , , , ) = uniswapPair.slot0();
 
-        uint amount0Out = address(coin) == uniswapPair.token0() ? amount : ZERO;
-        uint amount1Out = address(coin) == uniswapPair.token1() ? amount : ZERO;
+        bool zeroForOne = address(coin) == uniswapPair.token1() ? true : false;
+        uint160 sqrtLimitPrice = zeroForOne ? MIN_SQRT_RATIO + 1 : MAX_SQRT_RATIO - 1;
 
-        uniswapPair.swap(amount0Out, amount1Out, address(this), data);
+        uniswapPair.swap(address(this), zeroForOne, int256(amount) * -1, sqrtLimitPrice, data);
     }
     /// @notice Returns all available opportunities from a provided auction list
     /// @param auctionIds Auction IDs
     /// @return ids IDs of active auctions
     /// @return bidAmounts Rad amounts still requested by auctions
     /// @return totalAmount Wad amount to be borrowed
-    function getOpenAuctionsBidSizes(uint[] memory auctionIds) internal returns (uint[] memory, uint[] memory, uint) {
+    function _getOpenAuctionsBidSizes(uint[] memory auctionIds) internal returns (uint[] memory, uint[] memory, uint) {
         uint            amountToRaise;
         uint            totalAmount;
         uint            opportunityCount;
@@ -225,9 +222,9 @@ contract GebUniswapV2KeeperFlashProxyETH {
     /// @param safe A SAFE's ID
     /// @return auction The auction ID
     function liquidateAndSettleSAFE(address safe) public returns (uint auction) {
-        if (liquidationEngine.safeSaviours(liquidationEngine.chosenSAFESaviour(collateralType, safe)) == ONE) {
+        if (liquidationEngine.safeSaviours(liquidationEngine.chosenSAFESaviour(collateralType, safe)) == 1) {
             require (liquidationEngine.chosenSAFESaviour(collateralType, safe) == address(0),
-            "GebUniswapV2KeeperFlashProxyETH/safe-is-protected");
+            "safe-is-protected.");
         }
 
         auction = liquidationEngine.liquidateSAFE(collateralType, safe);
@@ -246,7 +243,7 @@ contract GebUniswapV2KeeperFlashProxyETH {
     /// @notice Settle auctions
     /// @param auctionIds IDs of the auctions to be settled
     function settleAuction(uint[] memory auctionIds) public {
-        (uint[] memory ids, uint[] memory bidAmounts, uint totalAmount) = getOpenAuctionsBidSizes(auctionIds);
+        (uint[] memory ids, uint[] memory bidAmounts, uint totalAmount) = _getOpenAuctionsBidSizes(auctionIds);
         require(totalAmount > ZERO, "GebUniswapV2KeeperFlashProxyETH/all-auctions-already-settled");
 
         bytes memory callbackData = abi.encodeWithSelector(this.multipleBid.selector, ids, bidAmounts);
