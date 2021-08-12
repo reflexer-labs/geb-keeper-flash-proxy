@@ -55,7 +55,7 @@ abstract contract LiquidationEngineLike {
 
 /*
 * @title GEB Multi Collateral Keeper Flash Proxy
-* @notice Trustless proxy that facilitates SAFE liquidation and bidding in collateral auctions using Uniswap V2 flashswaps
+* @notice Trustless proxy that facilitates SAFE liquidation and bidding in collateral auctions using Uniswap V3 flashswaps
 * @notice Multi collateral version, works with both ETH and general ERC20 collateral
 */
 contract GebUniswapV3MultiCollateralKeeperFlashProxy {
@@ -83,10 +83,10 @@ contract GebUniswapV3MultiCollateralKeeperFlashProxy {
         address coinJoinAddress,
         address liquidationEngineAddress
     ) public {
-        require(wethAddress != address(0), "GebUniswapV2MultiCollateralKeeperFlashProxy/null-weth");
-        require(systemCoinAddress != address(0), "GebUniswapV2MultiCollateralKeeperFlashProxy/null-system-coin");
-        require(coinJoinAddress != address(0), "GebUniswapV2MultiCollateralKeeperFlashProxy/null-coin-join");
-        require(liquidationEngineAddress != address(0), "GebUniswapV2MultiCollateralKeeperFlashProxy/null-liquidation-engine");
+        require(wethAddress != address(0), "GebUniswapV3MultiCollateralKeeperFlashProxy/null-weth");
+        require(systemCoinAddress != address(0), "GebUniswapV3MultiCollateralKeeperFlashProxy/null-system-coin");
+        require(coinJoinAddress != address(0), "GebUniswapV3MultiCollateralKeeperFlashProxy/null-coin-join");
+        require(liquidationEngineAddress != address(0), "GebUniswapV3MultiCollateralKeeperFlashProxy/null-liquidation-engine");
 
         weth               = CollateralLike(wethAddress);
         coin               = CollateralLike(systemCoinAddress);
@@ -97,13 +97,13 @@ contract GebUniswapV3MultiCollateralKeeperFlashProxy {
 
     // --- Math ---
     function addition(uint256 x, uint256 y) internal pure returns (uint256 z) {
-        require((z = x + y) >= x, "GebUniswapV2MultiCollateralKeeperFlashProxy/add-overflow");
+        require((z = x + y) >= x, "GebUniswapV3MultiCollateralKeeperFlashProxy/add-overflow");
     }
     function subtract(uint x, uint y) internal pure returns (uint z) {
-        require((z = x - y) <= x, "GebUniswapV2MultiCollateralKeeperFlashProxy/sub-underflow");
+        require((z = x - y) <= x, "GebUniswapV3MultiCollateralKeeperFlashProxy/sub-underflow");
     }
     function multiply(uint x, uint y) internal pure returns (uint z) {
-        require(y == ZERO || (z = x * y) / y == x, "GebUniswapV2MultiCollateralKeeperFlashProxy/mul-overflow");
+        require(y == ZERO || (z = x * y) / y == x, "GebUniswapV3MultiCollateralKeeperFlashProxy/mul-overflow");
     }
     function wad(uint rad) internal pure returns (uint) {
         return rad / 10 ** 27;
@@ -131,7 +131,7 @@ contract GebUniswapV3MultiCollateralKeeperFlashProxy {
     /// the end of the swap. If positive, the callback must send that amount of token1 to the pool.
     /// @param _data Any data passed through by the caller via the IUniswapV3PoolActions#swap call
     function uniswapV3SwapCallback(int256 _amount0, int256 _amount1, bytes calldata _data) external {
-        require(msg.sender == address(uniswapPair), "GebUniswapV2MultiCollateralKeeperFlashProxy/invalid-uniswap-pair");
+        require(msg.sender == address(uniswapPair), "GebUniswapV3MultiCollateralKeeperFlashProxy/invalid-uniswap-pair");
 
         (address caller, CollateralJoinLike collateralJoin, AuctionHouseLike auctionHouse, uint auctionId, uint amount) = abi.decode(
             _data, (address, CollateralJoinLike, AuctionHouseLike, uint, uint)
@@ -150,7 +150,7 @@ contract GebUniswapV3MultiCollateralKeeperFlashProxy {
 
         // repay loan
         uint amountToRepay = _amount0 > int(ZERO) ? uint(_amount0) : uint(_amount1);
-        require(amountToRepay <= collateralJoin.collateral().balanceOf(address(this)), "GebUniswapV2MultiCollateralKeeperFlashProxy/unprofitable");
+        require(amountToRepay <= collateralJoin.collateral().balanceOf(address(this)), "GebUniswapV3MultiCollateralKeeperFlashProxy/unprofitable");
         collateralJoin.collateral().transfer(address(uniswapPair), amountToRepay);
 
         // send profit back
@@ -176,7 +176,7 @@ contract GebUniswapV3MultiCollateralKeeperFlashProxy {
         collateralType = collateralJoin.collateralType();
         if (liquidationEngine.safeSaviours(liquidationEngine.chosenSAFESaviour(collateralType, safe)) == ONE) {
             require (liquidationEngine.chosenSAFESaviour(collateralType, safe) == address(0),
-            "GebUniswapV2MultiCollateralKeeperFlashProxy/safe-is-protected");
+            "GebUniswapV3MultiCollateralKeeperFlashProxy/safe-is-protected");
         }
 
         auction = liquidationEngine.liquidateSAFE(collateralType, safe);
@@ -190,7 +190,7 @@ contract GebUniswapV3MultiCollateralKeeperFlashProxy {
     function settleAuction(CollateralJoinLike collateralJoin, uint auctionId, address uniswapPoolAddress) public {
         (AuctionHouseLike auctionHouse,,) = liquidationEngine.collateralTypes(collateralJoin.collateralType());
         (, uint amountToRaise) = auctionHouse.bids(auctionId);
-        require(amountToRaise > ZERO, "GebUniswapV2MultiCollateralKeeperFlashProxy/auction-already-settled");
+        require(amountToRaise > ZERO, "GebUniswapV3MultiCollateralKeeperFlashProxy/auction-already-settled");
 
         bytes memory callbackData = abi.encode(
             msg.sender,
@@ -208,6 +208,6 @@ contract GebUniswapV3MultiCollateralKeeperFlashProxy {
 
     // --- Fallback ---
     receive() external payable {
-        require(msg.sender == address(weth), "GebUniswapV2MultiCollateralKeeperFlashProxy/only-weth-withdrawals-allowed");
+        require(msg.sender == address(weth), "GebUniswapV3MultiCollateralKeeperFlashProxy/only-weth-withdrawals-allowed");
     }
 }
