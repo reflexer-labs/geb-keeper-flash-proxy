@@ -53,7 +53,7 @@ abstract contract LiquidationEngineLike {
 
 /// @title GEB Keeper Flash Proxy
 /// @notice Trustless proxy that facilitates SAFE liquidation and bidding in auctions using Uniswap V2 flashswaps
-/// @notice Single collateral version, only meant to work with ETH collateral types
+/// @notice Uniswap pairs and weth are trusted contracts, use only against UniV3 pools and weth9
 contract GebUniswapV3MultiHopKeeperFlashProxy {
     AuctionHouseLike       public auctionHouse;
     SAFEEngineLike         public safeEngine;
@@ -165,15 +165,17 @@ contract GebUniswapV3MultiHopKeeperFlashProxy {
             coin.approve(address(coinJoin), amount);
             coinJoin.join(address(this), amount);
 
+            (uint160 sqrtLimitPrice, bytes memory data) = abi.decode(_data, (uint160, bytes));
+
             // bid
-            (bool success, ) = address(this).call(_data);
+            (bool success, ) = address(this).call(data);
             require(success, "failed bidding");
 
             // exit WETH
             collateralJoin.exit(address(this), safeEngine.tokenCollateral(collateralType, address(this)));
 
             // swap secondary secondary weth for exact amount of secondary token
-            _startSwap(auxiliaryUniPair, address(tokenToRepay) == auxiliaryUniPair.token1(), amountToRepay, "");
+            _startSwap(auxiliaryUniPair, address(tokenToRepay) == auxiliaryUniPair.token1(), amountToRepay, sqrtLimitPrice, "");
         }
         // pay for swap
         tokenToRepay.transfer(msg.sender, amountToRepay);
@@ -185,10 +187,11 @@ contract GebUniswapV3MultiHopKeeperFlashProxy {
     /// @param zeroForOne Direction of the swap
     /// @param amount Amount to borrow
     /// @param data Callback data, it will call this contract with the raw data
-    function _startSwap(IUniswapV3Pool pool, bool zeroForOne, uint amount, bytes memory data) internal {
+    function _startSwap(IUniswapV3Pool pool, bool zeroForOne, uint amount, uint160 sqrtLimitPrice, bytes memory data) internal {
         (uint160 currentPrice, , , , , , ) = pool.slot0();
 
-        uint160 sqrtLimitPrice = zeroForOne ? MIN_SQRT_RATIO + 1 : MAX_SQRT_RATIO - 1;
+        if (sqrtLimitPrice == 0)
+            sqrtLimitPrice = zeroForOne ? MIN_SQRT_RATIO + 1 : MAX_SQRT_RATIO - 1;
 
         pool.swap(address(this), zeroForOne, int256(amount) * -1, sqrtLimitPrice, data);
     }
@@ -223,7 +226,6 @@ contract GebUniswapV3MultiHopKeeperFlashProxy {
 
         return(ids, bidAmounts, totalAmount);
     }
-
     /// @notice Will send the profits back to caller
     function _payCaller() internal {
         CollateralLike collateral = collateralJoin.collateral();
@@ -240,6 +242,20 @@ contract GebUniswapV3MultiHopKeeperFlashProxy {
     /// @notice Liquidates an underwater safe and settles the auction right away
     /// @dev It will revert for protected SAFEs (those that have saviours). Protected SAFEs need to be liquidated through the LiquidationEngine
     /// @param safe A SAFE's ID
+    /// @param sqrtLimitPrices Limit prices for both swaps (in order)
+    /// @return auction The auction ID
+    function liquidateAndSettleSAFE(address safe, uint160[2] memory sqrtLimitPrices) public returns (uint auction) {
+        if (liquidationEngine.safeSaviours(liquidationEngine.chosenSAFESaviour(collateralType, safe)) == 1) {
+            require (liquidationEngine.chosenSAFESaviour(collateralType, safe) == address(0),
+            "safe-is-protected.");
+        }
+
+        auction = liquidationEngine.liquidateSAFE(collateralType, safe);
+        settleAuction(auction, sqrtLimitPrices);
+    }
+    /// @notice Liquidates an underwater safe and settles the auction right away - no slippage control
+    /// @dev It will revert for protected SAFEs (those that have saviours). Protected SAFEs need to be liquidated through the LiquidationEngine
+    /// @param safe A SAFE's ID
     /// @return auction The auction ID
     function liquidateAndSettleSAFE(address safe) public returns (uint auction) {
         if (liquidationEngine.safeSaviours(liquidationEngine.chosenSAFESaviour(collateralType, safe)) == 1) {
@@ -252,25 +268,45 @@ contract GebUniswapV3MultiHopKeeperFlashProxy {
     }
     /// @notice Settle auction
     /// @param auctionId ID of the auction to be settled
-    function settleAuction(uint auctionId) public {
+    /// @param sqrtLimitPrices Limit prices for both swaps (in order)
+    function settleAuction(uint auctionId, uint160[2] memory sqrtLimitPrices) public {
         (, uint amountToRaise) = auctionHouse.bids(auctionId);
         require(amountToRaise > ZERO, "GebUniswapV3MultiHopKeeperFlashProxy/auction-already-settled");
 
-        bytes memory callbackData = abi.encodeWithSelector(this.bid.selector, auctionId, amountToRaise);
+        bytes memory callbackData = abi.encode(
+            sqrtLimitPrices[1],
+            abi.encodeWithSelector(this.bid.selector, auctionId, amountToRaise)
+        );
 
-        _startSwap(uniswapPair ,address(coin) == uniswapPair.token1(), addition(wad(amountToRaise), ONE), callbackData);
+        _startSwap(uniswapPair ,address(coin) == uniswapPair.token1(), addition(wad(amountToRaise), ONE), sqrtLimitPrices[0], callbackData);
         _payCaller();
     }
     /// @notice Settle auctions
     /// @param auctionIds IDs of the auctions to be settled
-    function settleAuction(uint[] memory auctionIds) public {
+    /// @param sqrtLimitPrices Limit prices for both swaps (in order)
+    function settleAuction(uint[] memory auctionIds, uint160[2] memory sqrtLimitPrices) public {
         (uint[] memory ids, uint[] memory bidAmounts, uint totalAmount) = _getOpenAuctionsBidSizes(auctionIds);
         require(totalAmount > ZERO, "GebUniswapV3MultiHopKeeperFlashProxy/all-auctions-already-settled");
 
-        bytes memory callbackData = abi.encodeWithSelector(this.multipleBid.selector, ids, bidAmounts);
+        bytes memory callbackData = abi.encode(
+            sqrtLimitPrices[1],
+            abi.encodeWithSelector(this.multipleBid.selector, ids, bidAmounts)
+        );
 
-        _startSwap(uniswapPair, address(coin) == uniswapPair.token1() ,totalAmount, callbackData);
+        _startSwap(uniswapPair, address(coin) == uniswapPair.token1() ,totalAmount, sqrtLimitPrices[0], callbackData);
         _payCaller();
+    }
+    /// @notice Settle auction - no slippage controls for backward compatibility
+    /// @param auctionId ID of the auction to be settled
+    function settleAuction(uint auctionId) public {
+        uint160[2] memory sqrtLimitPrices;
+        settleAuction(auctionId, sqrtLimitPrices);
+    }
+    /// @notice Settle auction - no slippage controls for backward compatibility
+    /// @param auctionIds IDs of the auctions to be settled
+    function settleAuction(uint[] memory auctionIds) public {
+        uint160[2] memory sqrtLimitPrices;
+        settleAuction(auctionIds, sqrtLimitPrices);
     }
 
     // --- Fallback ---
