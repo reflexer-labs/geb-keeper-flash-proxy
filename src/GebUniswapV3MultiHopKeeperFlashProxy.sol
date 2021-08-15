@@ -77,8 +77,8 @@ contract GebUniswapV3MultiHopKeeperFlashProxy {
     /// @param auctionHouseAddress Address of the auction house
     /// @param wethAddress WETH address
     /// @param systemCoinAddress System coin address
-    /// @param uniswapPairAddress Uniswap V2 pair address (i.e: coin/token)
-    /// @param auxiliaryUniswapPairAddress Auxiliary Uniswap V2 pair address (i.e: token/ETH)
+    /// @param uniswapPairAddress Uniswap V3 pair address (i.e: coin/token)
+    /// @param auxiliaryUniswapPairAddress Auxiliary Uniswap V3 pair address (i.e: token/ETH)
     /// @param coinJoinAddress CoinJoin address
     /// @param collateralJoinAddress collateralJoin address
     constructor(
