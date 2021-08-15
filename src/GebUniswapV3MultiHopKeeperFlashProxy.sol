@@ -51,9 +51,9 @@ abstract contract LiquidationEngineLike {
     function safeEngine() view public virtual returns (SAFEEngineLike);
 }
 
-/// @title GEB Keeper Flash Proxy
-/// @notice Trustless proxy that facilitates SAFE liquidation and bidding in auctions using Uniswap V2 flashswaps
-/// @notice Uniswap pairs and weth are trusted contracts, use only against UniV3 pools and weth9
+/// @title GEB Multi Hop Keeper Flash Proxy
+/// @notice Trustless proxy that facilitates SAFE liquidation and bidding in auctions using Uniswap V3 flashswaps. This contract bids in auctions using multiple pools e.g RAI/USDC + USDC/ETH
+/// @notice Uniswap pairs and WETH are trusted contracts, use only against UniV3 pools and weth9
 contract GebUniswapV3MultiHopKeeperFlashProxy {
     AuctionHouseLike       public auctionHouse;
     SAFEEngineLike         public safeEngine;
