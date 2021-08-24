@@ -106,7 +106,7 @@ contract GebUniswapV3KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
     function uniswapV3MintCallback(
         uint256 amount0Owed,
         uint256 amount1Owed,
-        bytes calldata data
+        bytes calldata
     ) external {
         DSToken(UniswapV3Pool(msg.sender).token0()).transfer(msg.sender, amount0Owed);
         DSToken(UniswapV3Pool(msg.sender).token1()).transfer(msg.sender, amount1Owed);
@@ -118,7 +118,7 @@ contract GebUniswapV3KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
         int24 upperTick,
         uint256 t0am,
         uint256 t1am
-    ) public returns (uint128 liquidity) {
+    ) public pure returns (uint128 liquidity) {
         liquidity = LiquidityAmounts.getLiquidityForAmounts(
             sqrtRatioX96,
             TickMath.getSqrtRatioAtTick(_lowerTick),
@@ -353,6 +353,6 @@ contract GebUniswapV3KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
 
         manager.protectSAFE(safe, address(liquidationEngine), address(0xabc));
 
-        uint auction = keeperProxy.liquidateAndSettleSAFE(manager.safes(safe));
+        keeperProxy.liquidateAndSettleSAFE(manager.safes(safe));
     }
 }

@@ -24,7 +24,6 @@ contract UniswapV2Library {
 
     // Modified Uniswap function to work with dapp.tools (CREATE2 throws)
     function pairFor(address factory, address tokenA, address tokenB) internal view returns (address pair) {
-        (address token0, address token1) = sortTokens(tokenA, tokenB);
         return IUniswapV2Factory(factory).getPair(tokenA, tokenB);
     }
 

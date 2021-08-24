@@ -157,7 +157,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
     function uniswapV3MintCallback(
         uint256 amount0Owed,
         uint256 amount1Owed,
-        bytes calldata data
+        bytes calldata
     ) external {
         UniswapV3Pool pool = UniswapV3Pool(msg.sender);
         uint coinAmount = address(coin) == pool.token0() ? amount0Owed : amount1Owed;
@@ -178,7 +178,7 @@ contract GebMCKeeperFlashProxyTest is GebDeployTestBase, GebProxyIncentivesActio
         int24 upperTick,
         uint256 t0am,
         uint256 t1am
-    ) public returns (uint128 liquidity) {
+    ) public pure returns (uint128 liquidity) {
         liquidity = LiquidityAmounts.getLiquidityForAmounts(
             sqrtRatioX96,
             TickMath.getSqrtRatioAtTick(_lowerTick),

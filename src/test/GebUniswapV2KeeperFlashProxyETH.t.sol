@@ -169,6 +169,6 @@ contract GebUniswapV2KeeperFlashProxyETHTest is GebDeployTestBase, GebProxyIncen
 
         manager.protectSAFE(safe, address(liquidationEngine), address(0xabc));
 
-        uint auction = keeperProxy.liquidateAndSettleSAFE(manager.safes(safe));
+        keeperProxy.liquidateAndSettleSAFE(manager.safes(safe));
     }
 }

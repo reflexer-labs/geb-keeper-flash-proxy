@@ -192,7 +192,7 @@ contract GebUniswapV2KeeperFlashProxyETH {
     /// @return ids IDs of active auctions
     /// @return bidAmounts Rad amounts still requested by auctions
     /// @return totalAmount Wad amount to be borrowed
-    function getOpenAuctionsBidSizes(uint[] memory auctionIds) internal returns (uint[] memory, uint[] memory, uint) {
+    function getOpenAuctionsBidSizes(uint[] memory auctionIds) internal view returns (uint[] memory, uint[] memory, uint) {
         uint            amountToRaise;
         uint            totalAmount;
         uint            opportunityCount;
