@@ -354,6 +354,11 @@ contract KeeperFLashProxyV3MainnetForkTest is TestBase {
         _test_keeper_proxy();
     }
 
+    function test_fork_rai_eth_deployed() public payable onlyFork {
+        keeperProxy = GebUniswapV3MultiHopKeeperFlashProxy(0xcDCE3aF4ef75bC89601A2E785172c6B9f65a0aAc);
+        _test_keeper_proxy();
+    }
+
     function _test_keeper_proxy() internal {
         (address auctionHouseAddress,,) = contracts.liquidationEngine().collateralTypes("ETH-A");
         IncreasingDiscountCollateralAuctionHouseLike auctionHouse = IncreasingDiscountCollateralAuctionHouseLike(auctionHouseAddress);
