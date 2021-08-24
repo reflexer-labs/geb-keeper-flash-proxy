@@ -177,7 +177,6 @@ contract GebUniswapV3KeeperFlashProxyETH {
     /// @param data Callback date, it will call this contract with the data
     function _startSwap(uint amount, bytes memory data) internal {
         caller = msg.sender;
-        (uint160 currentPrice, , , , , , ) = uniswapPair.slot0();
 
         bool zeroForOne = address(coin) == uniswapPair.token1() ? true : false;
         uint160 sqrtLimitPrice = zeroForOne ? MIN_SQRT_RATIO + 1 : MAX_SQRT_RATIO - 1;
@@ -189,7 +188,7 @@ contract GebUniswapV3KeeperFlashProxyETH {
     /// @return ids IDs of active auctions
     /// @return bidAmounts Rad amounts still requested by auctions
     /// @return totalAmount Wad amount to be borrowed
-    function _getOpenAuctionsBidSizes(uint[] memory auctionIds) internal returns (uint[] memory, uint[] memory, uint) {
+    function _getOpenAuctionsBidSizes(uint[] memory auctionIds) internal view returns (uint[] memory, uint[] memory, uint) {
         uint            amountToRaise;
         uint            totalAmount;
         uint            opportunityCount;

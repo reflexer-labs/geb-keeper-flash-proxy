@@ -188,8 +188,6 @@ contract GebUniswapV3MultiHopKeeperFlashProxy {
     /// @param amount Amount to borrow
     /// @param data Callback data, it will call this contract with the raw data
     function _startSwap(IUniswapV3Pool pool, bool zeroForOne, uint amount, uint160 sqrtLimitPrice, bytes memory data) internal {
-        (uint160 currentPrice, , , , , , ) = pool.slot0();
-
         if (sqrtLimitPrice == 0)
             sqrtLimitPrice = zeroForOne ? MIN_SQRT_RATIO + 1 : MAX_SQRT_RATIO - 1;
 
@@ -200,7 +198,7 @@ contract GebUniswapV3MultiHopKeeperFlashProxy {
     /// @return ids IDs of active auctions
     /// @return bidAmounts Rad amounts still requested by auctions
     /// @return totalAmount Wad amount to be borrowed
-    function _getOpenAuctionsBidSizes(uint[] memory auctionIds) internal returns (uint[] memory, uint[] memory, uint) {
+    function _getOpenAuctionsBidSizes(uint[] memory auctionIds) internal view returns (uint[] memory, uint[] memory, uint) {
         uint            amountToRaise;
         uint            totalAmount;
         uint            opportunityCount;
